@@ -36,8 +36,6 @@ Business rules are enforced inside the database, so they cannot be bypassed by c
 - Attachment validation (images and PDF, 5 MB, 3 per ticket) with short-lived signed download links.
 - HTTP security headers (HSTS, frame protection, content-type sniffing protection).
 
-During development I audited the system and fixed 8 security issues, including a disabled RLS policy on the accounts table, a legacy trigger that could overwrite login passwords, and a role-escalation path.
-
 ## Tech stack
 
 | Layer | Technology |
