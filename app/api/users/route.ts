@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   const username = body?.username?.trim().toLowerCase() || ''
   const employeeNumber = normalizeDigits(body?.employeeNumber || '').replace(/\D/g, '')
   const requestedDepartment = body?.department?.trim() || ''
-  const role = body?.role || 'user'
+  const role = (body?.role === 'manager' ? 'technician' : body?.role) || 'user'
   const password = body?.password || ''
   const departmentResult = storedDepartment(role, requestedDepartment)
   if ('error' in departmentResult) return Response.json({ error: departmentResult.error }, { status: 400 })
@@ -138,7 +138,7 @@ export async function PATCH(request: Request) {
   let normalizedDepartment = ''
   if (body?.role || body?.department) {
     const { data: current } = await admin.from('profiles').select('role, department').eq('id', userId).maybeSingle()
-    const nextRole = body.role || current?.role || 'user'
+    const nextRole = (body.role === 'manager' ? 'technician' : body.role) || current?.role || 'user'
     const nextDepartment = (body.department ?? current?.department ?? '').trim()
     const checked = storedDepartment(nextRole, nextDepartment)
     if ('error' in checked) return Response.json({ error: checked.error }, { status: 400 })

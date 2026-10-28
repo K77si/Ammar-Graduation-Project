@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useState, useRef } from 'react'
-import { createClient } from '@supabase/supabase-js'
 import { Ticket, PlusCircle, LogOut, Moon, Sun, Bell, X, MessageSquare, Star, Search, Hash } from 'lucide-react'
 import { SanadMark } from '@/components/sanad-mark'
 import { TicketFiles } from '@/components/ticket-files'
@@ -15,11 +14,11 @@ import { rememberNotices, unseenNotices } from '@/lib/seen-notices'
 import { loadTicketThread, readTicketMeta, sendTicketReply, subscribeTicketChanges } from '@/lib/ticket-thread'
 import { rankSimilar } from '@/lib/similar'
 import { DesktopNotifyStatus, notifyDesktop, useNotifyPermission } from '@/lib/desktop-notify'
+import { useTheme } from '@/lib/theme'
 import { FAULT_TYPES, closeStale, isActive, sortTickets, suggestFault, ticketAction } from '@/lib/workflow'
+import { browserSupabase } from '@/lib/supabase-browser'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const supabase = browserSupabase()
 
 interface TicketItem {
   id: string
@@ -56,7 +55,8 @@ interface NotificationItem {
 }
 
 export default function EmployeePage() {
-  const [dark, setDark] = useState(false)
+  const { dark, toggle } = useTheme()
+  const [entered, setEntered] = useState(false)
   const [loading, setLoading] = useState(true)
   const [userEmail, setUserEmail] = useState('')
   const [userName, setUserName] = useState('موظف النظام')
@@ -115,12 +115,6 @@ export default function EmployeePage() {
   const [events, setEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; created_at: string }>>([])
   const [actionMsg, setActionMsg] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', dark)
-    return () => document.documentElement.classList.remove('dark')
-  }, [dark])
-
 
   useEffect(() => {
     openTicketId.current = selectedTicket?.id || ''
@@ -252,6 +246,7 @@ export default function EmployeePage() {
       headDeptRef.current = profile.department || ''
       setIsHead(head)
       setHeadDepartment(profile.department || '')
+      setEntered(true)
 
       fetchEmployeeData(session.user.id)
     }
@@ -473,6 +468,8 @@ export default function EmployeePage() {
   ), [title, faqs, outageMode])
   const canReply = Boolean(selectedTicket && selectedTicket.user_id === userId && selectedTicket.status !== 'مغلقة' && selectedTicket.status !== 'ملغاة')
 
+  if (!entered) return <main className="employee-portal" style={{ minHeight: '100vh' }} aria-busy="true" />
+
   return (
     <main dir="rtl" className="employee-portal">
       
@@ -490,9 +487,9 @@ export default function EmployeePage() {
       {/* رأس الصفحة */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', padding: '1.5rem 0', borderBottom: `1px solid ${'var(--border)'}`, position: 'relative', zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ color: dark ? '#fff' : '#5b21b6', display: 'flex', alignItems: 'center' }}><SanadMark size={36} /></div>
+          <div style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center' }}><SanadMark size={36} /></div>
           <div>
-            <h1 style={{ fontSize: '18px', margin: 0, color: 'var(--text)' }}>{isHead ? `رئيس قسم ${headDepartment}` : 'بوابة الموظف'} - سند</h1>
+            <h1 style={{ fontSize: '18px', margin: 0, color: 'var(--text)' }}>{isHead ? 'بوابة رئيس القسم' : 'بوابة الموظف'}</h1>
             <p className="day-greeting" style={{ ...greetingStyle, fontSize: '15px' }}>{greeting}، {userName}</p>
             {employeeNumber && <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>رقم الموظف: <b dir="ltr" style={{ color: '#7c3aed' }}>{employeeNumber}</b></p>}
           </div>
@@ -519,7 +516,7 @@ export default function EmployeePage() {
             )}
           </div>
 
-          <button onClick={() => setDark(!dark)} aria-label="تبديل المظهر" title="تبديل المظهر" style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '10px', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text)' }}>
+          <button onClick={toggle} aria-label="تبديل المظهر" title="تبديل المظهر" style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '10px', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text)' }}>
             {dark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           
@@ -531,7 +528,8 @@ export default function EmployeePage() {
 
       {/* المحتوى */}
       <div style={{ padding: '2rem 0', flex: 1, display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-        
+        <AiAssistant supabase={supabase} onOpenTicket={(question, fault) => openNewTicket(false, question, fault)} onTicketsChanged={() => fetchEmployeeData(userId)} />
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text)' }}>{isHead ? `بلاغات ${headDepartment}` : 'سجل بلاغاتي'}</h2>
@@ -563,8 +561,6 @@ export default function EmployeePage() {
             ))}
           </div>
         )}
-
-        <AiAssistant supabase={supabase} onOpenTicket={(question, fault) => openNewTicket(false, question, fault)} />
 
         {isHead && (
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px 16px' }}>

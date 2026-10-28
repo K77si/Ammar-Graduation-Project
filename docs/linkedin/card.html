@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 750px; overflow: hidden; }
+  body { font-family: 'Inter', 'Cairo', sans-serif; background: radial-gradient(1000px 500px at 85% -10%, #ede9fe, transparent 60%), linear-gradient(160deg, #faf5ff 0%, #f4f6fb 55%, #eef2ff 100%); color: #1e1b4b; padding: 44px 56px; display: flex; flex-direction: column; gap: 22px; }
+  .top { display: flex; justify-content: space-between; align-items: center; }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; font-size: 22px; }
+  .mark { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #7c3aed, #4f46e5); color: #fff; display: grid; place-items: center; font-size: 18px; letter-spacing: -1px; }
+  .brand small { display: block; font-size: 13px; font-weight: 600; color: #6b7280; }
+  .step { font-size: 14px; font-weight: 700; color: #7c3aed; background: #ede9fe; padding: 6px 14px; border-radius: 999px; }
+  h1 { font-size: 36px; font-weight: 800; line-height: 1.2; letter-spacing: -0.5px; }
+  h1 span { color: #7c3aed; }
+  p.sub { font-size: 18px; color: #4b5563; margin-top: -10px; }
+  .frame { flex: 1; min-height: 0; background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(30, 27, 75, 0.18); overflow: hidden; display: flex; flex-direction: column; border: 1px solid #e5e7eb; }
+  .bar { height: 30px; background: #f3f4f6; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid #e5e7eb; }
+  .bar i { width: 11px; height: 11px; border-radius: 50%; background: #d1d5db; display: inline-block; }
+  .bar i:nth-child(1) { background: #f87171; } .bar i:nth-child(2) { background: #fbbf24; } .bar i:nth-child(3) { background: #34d399; }
+  .bar b { margin-left: 14px; font-size: 12px; font-weight: 600; color: #6b7280; background: #fff; padding: 2px 12px; border-radius: 6px; }
+  .shot { flex: 1; min-height: 0; background-size: 100% auto; background-position: top center; background-repeat: no-repeat; background-color: #f4f6fb; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand"><div class="mark">sn</div><div>Sanad<small>AI-Powered IT Helpdesk</small></div></div>
+    <div class="step" id="step"></div>
+  </div>
+  <h1 id="title"></h1>
+  <p class="sub" id="sub"></p>
+  <div class="frame">
+    <div class="bar"><i></i><i></i><i></i><b>sanad-lyart-seven.vercel.app</b></div>
+    <div class="shot" id="shot"></div>
+  </div>
+<script>
+  const params = new URLSearchParams(location.search)
+  document.getElementById('step').textContent = params.get('step') || ''
+  document.getElementById('title').innerHTML = params.get('title') || ''
+  document.getElementById('sub').textContent = params.get('sub') || ''
+  document.getElementById('shot').style.backgroundImage = `url('../screenshots/${params.get('img')}')`
+</script>
+</body>
+</html>

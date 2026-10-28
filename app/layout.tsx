@@ -29,8 +29,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="ar"
       dir="rtl"
       className={`${geistSans.variable} ${geistMono.variable} ${cairo.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className={`${cairo.className} min-h-full flex flex-col`}>{children}</body>
+      <body className={`${cairo.className} min-h-full flex flex-col`}>
+        <script dangerouslySetInnerHTML={{ __html: "try{if(localStorage.getItem('sanad-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}" }} />
+        {children}
+      </body>
     </html>
   );
 }

@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
 import {
-  Activity, ArrowDownLeft, Bell, Check, CircleHelp, Hash, Info, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Sun, Ticket, Wrench, X, MessageSquare, BarChart3, Send
+  Activity, ArrowDownLeft, Bell, Bot, Check, CircleHelp, Hash, Info, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Sun, Ticket, Wrench, X, MessageSquare, BarChart3, Send
 } from 'lucide-react'
 import { SanadMark } from '@/components/sanad-mark'
 import { TicketFiles } from '@/components/ticket-files'
@@ -18,10 +17,10 @@ import { rememberNotices, unseenNotices } from '@/lib/seen-notices'
 import { rankSimilar } from '@/lib/similar'
 import { DesktopNotifyStatus, notifyDesktop, useNotifyPermission } from '@/lib/desktop-notify'
 import { loadTicketThread, readTicketMeta, sendTicketReply, subscribeTicketChanges } from '@/lib/ticket-thread'
+import { browserSupabase } from '@/lib/supabase-browser'
+import { useTheme } from '@/lib/theme'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const supabase = browserSupabase()
 
 const STATUSES = WORK_STATUSES
 
@@ -59,7 +58,7 @@ interface ReplyItem {
 }
 
 export default function TechnicianPage() {
-  const [dark, setDark] = useState(false)
+  const { dark, toggle } = useTheme()
   const [menu, setMenu] = useState(false)
   const [loading, setLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -325,12 +324,10 @@ export default function TechnicianPage() {
     setMenu(false)
   }
 
-  if (!ready) {
-    return <main dir="rtl" className={dark ? 'app-shell dark' : 'app-shell'} />
-  }
+  if (!ready) return <main className="app-shell" style={{ minHeight: '100vh' }} aria-busy="true" />
 
   return (
-    <main dir="rtl" className={dark ? 'app-shell dark' : 'app-shell'}>
+    <main dir="rtl" className="app-shell">
       {menu && <button aria-label="إغلاق القائمة" className="mobile-scrim" onClick={() => setMenu(false)} />}
       <aside className={`sidebar ${menu ? 'sidebar-open' : ''}`} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         <div>
@@ -340,11 +337,12 @@ export default function TechnicianPage() {
             <button className="icon-btn mobile-close" aria-label="إغلاق القائمة" onClick={() => setMenu(false)}><X /></button>
           </div>
           <div className="workspace">
-            <div><span className="workspace-dot" /><span>بوابة الفني</span></div>
+            <div><span className="workspace-dot" /><span>بوابة فني الدعم</span></div>
           </div>
           <nav className="nav">
             <p>لوحة التحكم</p>
             <Nav icon={<LayoutDashboard />} label="نظرة عامة" active={activeTab === 'نظرة عامة'} onClick={() => { setActiveTab('نظرة عامة'); setMenu(false) }} />
+            <Nav icon={<Bot />} label="اسأل سند" active={activeTab === 'اسأل سند'} onClick={() => { setActiveTab('اسأل سند'); setMenu(false) }} />
             <Nav icon={<Ticket />} label="البلاغات" badge={openCount.toString()} active={activeTab === 'البلاغات'} onClick={() => goTickets('الكل')} />
             <p className="nav-label">المتابعة</p>
             <Nav icon={<Wrench />} label="بلاغاتي" badge={myCount.toString()} active={activeTab === 'بلاغاتي'} onClick={() => { setActiveTab('بلاغاتي'); setMenu(false) }} />
@@ -368,26 +366,26 @@ export default function TechnicianPage() {
               <button className="icon-btn" aria-label="التنبيهات" onClick={() => { const next = !showNotices; if (next) rememberNotices(userId, notices.map((item) => item.id)); setShowNotices(next) }} title="التنبيهات"><Bell /></button>
               {notices.length > 0 && <span style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, background: '#ef4444', borderRadius: '50%' }} />}
               {showNotices && (
-                <div style={{ position: 'absolute', left: 0, top: '46px', background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '12px', width: '280px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 100, padding: '12px' }}>
+                <div style={{ position: 'absolute', left: 0, top: '46px', background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '12px', width: '280px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 100, padding: '12px' }}>
                   <strong style={{ display: 'block', fontSize: '13px', marginBottom: '8px' }}>البلاغات التي أعمل عليها</strong>
                   <DesktopNotifyStatus permission={notifyPermission} onEnable={requestNotify} />
                   {notices.length === 0 ? (
                     <div style={{ fontSize: '12px', color: '#94a3b8' }}>{alertsOn ? 'لا توجد بلاغات تعمل عليها حالياً.' : 'تنبيهات البوابة متوقفة من إعدادات النظام.'}</div>
                   ) : notices.map((notice) => (
-                    <div key={notice.id} style={{ fontSize: '12px', padding: '8px', background: dark ? '#1a1d2d' : '#f8fafc', borderRadius: '6px', marginBottom: '6px' }}>{notice.message}</div>
+                    <div key={notice.id} style={{ fontSize: '12px', padding: '8px', background: 'var(--field)', borderRadius: '6px', marginBottom: '6px' }}>{notice.message}</div>
                   ))}
                 </div>
               )}
             </div>
             <button className="icon-btn" aria-label="المساعدة" onClick={() => setShowHelpModal(true)} title="معلومات النظام"><CircleHelp /></button>
-            <button className="theme-toggle" aria-label="تبديل المظهر" onClick={() => setDark(!dark)}>{dark ? <Sun /> : <Moon />}</button>
+            <button className="theme-toggle" aria-label="تبديل المظهر" onClick={toggle}>{dark ? <Sun /> : <Moon />}</button>
             <div style={{ position: 'relative' }}>
               <div className="top-avatar" onClick={() => setShowProfileMenu(!showProfileMenu)} style={{ cursor: 'pointer', userSelect: 'none' }} title="الحساب">{initials}</div>
               {showProfileMenu && (
-                <div style={{ position: 'absolute', left: 0, top: '45px', background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', width: '220px', zIndex: 100, padding: '12px' }}>
-                  <div style={{ paddingBottom: '10px', borderBottom: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, marginBottom: '8px' }}>
-                    <strong style={{ display: 'block', fontSize: '13px', color: dark ? '#fff' : '#0f172a' }}>{userName}</strong>
-                    {workerNumber && <small dir="ltr" style={{ display: 'block', color: '#7c3aed', fontSize: '12px', fontWeight: 800 }}>{workerNumber}</small>}
+                <div style={{ position: 'absolute', left: 0, top: '45px', background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', width: '220px', zIndex: 100, padding: '12px' }}>
+                  <div style={{ paddingBottom: '10px', borderBottom: `1px solid ${'var(--border)'}`, marginBottom: '8px' }}>
+                    <strong style={{ display: 'block', fontSize: '13px', color: 'var(--text)' }}>{userName}</strong>
+                    {workerNumber && <small style={{ display: 'block', fontSize: '12px', color: '#94a3b8' }}>رقم الموظف: <b dir="ltr" style={{ color: '#7c3aed', fontWeight: 800 }}>{workerNumber}</b></small>}
                     <small dir="ltr" style={{ color: '#94a3b8', fontSize: '11px', wordBreak: 'break-all' }}>{userEmail}</small>
                   </div>
                   <button onClick={handleLogout} style={{ width: '100%', textAlign: 'right', background: 'transparent', border: 'none', color: '#ef4444', padding: '8px', fontSize: '13px', cursor: 'pointer', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}><LogOut size={14} /> تسجيل الخروج</button>
@@ -401,9 +399,10 @@ export default function TechnicianPage() {
           <div className="page-heading">
             <div>
               <p className="day-greeting" style={greetingStyle}>{greeting}، {userName}</p>
-              <div className="eyebrow">بوابة الفني</div>
+              <div className="eyebrow">بوابة فني الدعم</div>
               <h1>
-                {activeTab === 'البلاغات' ? 'البلاغات' :
+                {activeTab === 'اسأل سند' ? 'اسأل سند' :
+                  activeTab === 'البلاغات' ? 'البلاغات' :
                   activeTab === 'بلاغاتي' ? 'بلاغاتي' :
                   activeTab === 'التحليلات' ? 'تحليلات البلاغات' : 'نظرة عامة'}
               </h1>
@@ -430,6 +429,10 @@ export default function TechnicianPage() {
             </div>
           </div>
 
+          {activeTab === 'اسأل سند' && (
+            <AiAssistant supabase={supabase} mode="technician" onTicketsChanged={() => { void fetchQueue(true) }} />
+          )}
+
           {activeTab === 'نظرة عامة' && (
             <>
               <div className="stats-grid">
@@ -438,7 +441,6 @@ export default function TechnicianPage() {
                 <Stat icon={<Check />} label="المنجزة والمغلقة" value={doneCount.toString()} sub="انتهى العمل عليها" onClick={() => goTickets('المنجزة والمغلقة')} />
                 <Stat icon={<Activity />} label="إجمالي البلاغات" value={totalTickets.toString()} sub="كل البلاغات المسجلة" onClick={() => goTickets('الكل')} />
               </div>
-              <div style={{ margin: '0 0 20px' }}><AiAssistant supabase={supabase} mode="technician" /></div>
               <div className="dashboard-grid">
                 <section className="panel copilot">
                   <PanelHeader icon={<Wrench />} title="من أين تبدأ" action="" />
@@ -548,7 +550,7 @@ export default function TechnicianPage() {
 
       {showHelpModal && (
         <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowHelpModal(false) }} style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '420px', boxShadow: '0 25px 50px rgba(0,0,0,0.5)', color: dark ? '#fff' : '#0f172a' }}>
+          <div style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '420px', boxShadow: '0 25px 50px rgba(0,0,0,0.5)', color: 'var(--text)' }}>
             <div className="modal-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}><Info size={20} color="#8b5cf6" /> حول لوحة الفني</h3>
               <button onClick={() => setShowHelpModal(false)} aria-label="إغلاق" title="إغلاق" style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={20} /></button>
@@ -562,7 +564,7 @@ export default function TechnicianPage() {
 
       {selectedTicket && (
         <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedTicket(null) }} style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div style={{ background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '640px', maxHeight: '85vh', overflowY: 'auto', color: dark ? '#fff' : '#0f172a' }}>
+          <div style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '640px', maxHeight: '85vh', overflowY: 'auto', color: 'var(--text)' }}>
             <div className="modal-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
               <div>
                 <span className="ticket-no" style={{ ...ticketNoStyle, display: 'block', marginBottom: '4px' }}>{formatTicketNo(selectedTicket.ticket_number)}</span>
@@ -571,12 +573,12 @@ export default function TechnicianPage() {
               <button onClick={() => setSelectedTicket(null)} aria-label="إغلاق" title="إغلاق" style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={20} /></button>
             </div>
             <div style={{ display: 'flex', gap: '12px', marginBottom: '1rem', fontSize: '13px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ background: dark ? '#1a1d2d' : '#f8fafc', padding: '6px 12px', borderRadius: '8px' }}><b>مقدّم البلاغ:</b> {raiserName(selectedTicket)}</span>
-              <span style={{ background: dark ? '#1a1d2d' : '#f8fafc', padding: '6px 12px', borderRadius: '8px' }}><b>رقم الموظف:</b> <span dir="ltr">{selectedTicket.user_id ? (staffNumbers[selectedTicket.user_id] || '—') : '—'}</span></span>
+              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>مقدّم البلاغ:</b> {raiserName(selectedTicket)}</span>
+              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>رقم الموظف:</b> <span dir="ltr">{selectedTicket.user_id ? (staffNumbers[selectedTicket.user_id] || '—') : '—'}</span></span>
               <StatusBadge status={selectedTicket.status} />
-              <span style={{ background: dark ? '#1a1d2d' : '#f8fafc', padding: '6px 12px', borderRadius: '8px' }}><b>يعمل عليها:</b> {workerName(selectedTicket)}</span>
-              <span style={{ background: dark ? '#1a1d2d' : '#f8fafc', padding: '6px 12px', borderRadius: '8px' }}><b>الوقت:</b> {formatTicketWhen(selectedTicket.created_at)}</span>
-              {asRating(selectedTicket.rating) !== null && <span style={{ background: dark ? '#1a1d2d' : '#f8fafc', padding: '6px 12px', borderRadius: '8px' }}><b>التقييم:</b> {asRating(selectedTicket.rating)}/5</span>}
+              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>يعمل عليها:</b> {workerName(selectedTicket)}</span>
+              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>الوقت:</b> {formatTicketWhen(selectedTicket.created_at)}</span>
+              {asRating(selectedTicket.rating) !== null && <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>التقييم:</b> {asRating(selectedTicket.rating)}/5</span>}
             </div>
             {actionMsg && <p style={{ fontSize: '13px', margin: '0 0 10px', color: actionMsg.startsWith('تم') ? '#10b981' : '#ef4444' }}>{actionMsg}</p>}
             <TicketTools ticket={selectedTicket} actor="technician" userId={userId} technicians={[]} events={events} notes={notes} busy={savingStatus} resolutionDraft={resolutionDraft} onRun={async (action, payload) => {
@@ -597,7 +599,7 @@ export default function TechnicianPage() {
                 <summary>حلول بلاغات مشابهة ({similarSolved.length})</summary>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
                   {similarSolved.map((ticket) => (
-                    <div key={ticket.id} style={{ background: dark ? '#1a1d2d' : '#f8fafc', borderRadius: '8px', padding: '8px 10px', fontSize: '12px', lineHeight: 1.7 }}>
+                    <div key={ticket.id} style={{ background: 'var(--field)', borderRadius: '8px', padding: '8px 10px', fontSize: '12px', lineHeight: 1.7 }}>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap' }}>
                         <span className="ticket-no" style={ticketNoStyle}>{formatTicketNo(ticket.ticket_number)}</span>
                         <b>{ticket.title}</b>
@@ -616,7 +618,7 @@ export default function TechnicianPage() {
               </details>
             )}
             {selectedTicket.status !== 'مغلقة' && selectedTicket.status !== 'ملغاة' && (
-              <AiAssistant key={selectedTicket.id} supabase={supabase} mode="technician" compact seed={`${selectedTicket.title}${selectedTicket.fault_type ? ` (نوع العطل: ${selectedTicket.fault_type})` : ''}`} />
+              <AiAssistant key={selectedTicket.id} supabase={supabase} mode="technician" compact seed={`${selectedTicket.title}${selectedTicket.fault_type ? ` (نوع العطل: ${selectedTicket.fault_type})` : ''}`} onTicketsChanged={() => { void fetchQueue(true) }} />
             )}
             <div>
               <h4 style={{ fontSize: '14px', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} /> المحادثة</h4>
@@ -625,13 +627,13 @@ export default function TechnicianPage() {
                 <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>البلاغ {statusLabel(selectedTicket.status)}، ولا يمكن إضافة ردود عليه.</p>
               ) : <>
               {templates.length > 0 && (
-                <select aria-label="رد جاهز" value="" onChange={(event) => { if (event.target.value) setReplyText(event.target.value) }} style={{ marginBottom: '8px', background: dark ? '#1a1d2d' : '#f8fafc', color: 'inherit', width: '100%', border: '1px solid #c4b5fd', borderRadius: '8px', padding: '8px' }}>
+                <select aria-label="رد جاهز" value="" onChange={(event) => { if (event.target.value) setReplyText(event.target.value) }} style={{ marginBottom: '8px', background: 'var(--field)', color: 'inherit', width: '100%', border: '1px solid #c4b5fd', borderRadius: '8px', padding: '8px' }}>
                   <option value="">اختر رداً جاهزاً</option>
                   {templates.map((item) => <option key={item.id} value={item.body}>{item.body}</option>)}
                 </select>
               )}
               <form onSubmit={handleSendReply} style={{ display: 'flex', gap: '8px' }}>
-                <input aria-label="الرد" type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="اكتب ردك على الموظف..." style={{ flex: 1, background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '10px', padding: '10px 12px', color: dark ? '#fff' : '#0f172a', outline: 'none', fontSize: '13px' }} />
+                <input aria-label="الرد" type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="اكتب ردك على الموظف..." style={{ flex: 1, background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '10px', padding: '10px 12px', color: 'var(--text)', outline: 'none', fontSize: '13px' }} />
                 <button type="submit" className="primary-btn" style={{ padding: '0 14px' }}><Send size={16} style={{ transform: 'rotate(180deg)' }} /></button>
               </form>
               </>}
@@ -683,7 +685,7 @@ function TicketTable({ loading, tickets, names, numbers, departments, workerName
                 <td>
                   <div className="person">
                     <div className="avatar violet">{requester.slice(0, 2)}</div>
-                    <div><b>{requester}</b>{ticket.user_id && numbers?.[ticket.user_id] && <small dir="ltr" style={{ display: 'block', color: '#7c3aed', fontWeight: 800 }}>{numbers[ticket.user_id]}</small>}<small>{requesterDept}</small></div>
+                    <div><b>{requester}</b>{ticket.user_id && numbers?.[ticket.user_id] && <small style={{ display: 'block', color: '#64748b', fontWeight: 600 }}>رقم الموظف: <b dir="ltr" style={{ color: '#7c3aed', fontWeight: 800 }}>{numbers[ticket.user_id]}</b></small>}<small>{requesterDept}</small></div>
                   </div>
                 </td>
                 <td>{ticket.fault_type || '—'}</td>

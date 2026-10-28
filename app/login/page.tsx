@@ -1,27 +1,27 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
-import { Lock, UserRound, ArrowLeft, Loader2 } from 'lucide-react'
+import { Lock, UserRound, ArrowLeft, Loader2, Moon, Sun } from 'lucide-react'
 import { SanadMark } from '@/components/sanad-mark'
+import { browserSupabase } from '@/lib/supabase-browser'
+import { useTheme } from '@/lib/theme'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const supabase = browserSupabase()
 
 const fieldStyle = {
   width: '100%',
-  background: '#ffffff',
-  border: '1px solid #e2e8f0',
+  background: 'var(--field)',
+  border: '1px solid var(--field-border)',
   borderRadius: '12px',
   padding: '12px 14px',
   paddingInlineEnd: '44px',
-  color: '#0f172a',
+  color: 'var(--text)',
   fontSize: '15px',
   outline: 'none'
 } as const
 
 export default function LoginPage() {
+  const { dark, toggle } = useTheme()
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -138,23 +138,25 @@ export default function LoginPage() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'radial-gradient(circle at top, #ffffff 0%, #f4f7fb 55%, #eef2f7 100%)',
-      color: '#0f172a',
-      padding: '1.5rem'
+      background: 'radial-gradient(circle at top, var(--surface) 0%, var(--bg) 55%, var(--bg) 100%)',
+      color: 'var(--text)',
+      padding: '1.5rem',
+      position: 'relative'
     }}>
+      <button type="button" onClick={toggle} aria-label="تبديل المظهر" style={{ position: 'absolute', top: '1.25rem', left: '1.25rem', width: 42, height: 42, borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button>
       <div style={{
         width: '100%',
         maxWidth: '440px',
-        background: '#ffffff',
-        border: '1px solid #e7edf5',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
         borderRadius: '24px',
         padding: '2.5rem 2.25rem',
-        boxShadow: '0 24px 60px rgba(15, 23, 42, 0.08)'
+        boxShadow: 'var(--shadow)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', marginBottom: '2rem', color: '#4c1d95' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', marginBottom: '2rem', color: 'var(--accent)' }}>
           <div style={{ textAlign: 'right' }}>
-            <h1 style={{ fontSize: '34px', fontWeight: 800, margin: 0, lineHeight: 1, color: '#1e1b4b' }}>سند</h1>
-            <p style={{ color: '#64748b', fontSize: '13px', margin: '6px 0 0' }}>منصة الدعم الفني</p>
+            <h1 style={{ fontSize: '34px', fontWeight: 800, margin: 0, lineHeight: 1, color: 'var(--text)' }}>سند</h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: '6px 0 0' }}>منصة الدعم الفني</p>
           </div>
           <SanadMark size={58} />
         </div>
@@ -180,9 +182,9 @@ export default function LoginPage() {
           </div>
         ) : mustChange ? (
           <form onSubmit={handlePasswordChange} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <p style={{ color: '#64748b', fontSize: '13px', margin: 0, lineHeight: 1.6 }}>يجب تعيين كلمة مرور جديدة قبل الدخول.</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0, lineHeight: 1.6 }}>يجب تعيين كلمة مرور جديدة قبل الدخول.</p>
             <div>
-              <label htmlFor="new-password" style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: '6px', color: '#334155' }}>كلمة المرور الجديدة</label>
+              <label htmlFor="new-password" style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: '6px', color: 'var(--text)' }}>كلمة المرور الجديدة</label>
               <input id="new-password" type="password" required minLength={6} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} style={fieldStyle} />
             </div>
             <button type="submit" disabled={loading} style={{ background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '12px', padding: '13px', fontSize: '15px', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer' }}>{loading ? 'جاري الحفظ...' : 'حفظ والدخول'}</button>
@@ -190,7 +192,7 @@ export default function LoginPage() {
         ) : (
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
-              <label htmlFor="login-identifier" style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: '6px', color: '#334155' }}>البريد أو رقم الموظف</label>
+              <label htmlFor="login-identifier" style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: '6px', color: 'var(--text)' }}>البريد أو رقم الموظف</label>
               <div dir="ltr" style={{ position: 'relative' }}>
                 <UserRound size={18} style={{ position: 'absolute', left: '14px', top: '14px', color: '#94a3b8' }} />
                 <input
@@ -208,7 +210,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label htmlFor="login-password" style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: '6px', color: '#334155' }}>كلمة المرور</label>
+              <label htmlFor="login-password" style={{ display: 'block', fontSize: '13px', fontWeight: 700, marginBottom: '6px', color: 'var(--text)' }}>كلمة المرور</label>
               <div style={{ position: 'relative' }}>
                 <Lock size={18} style={{ position: 'absolute', insetInlineEnd: '14px', top: '14px', color: '#94a3b8' }} />
                 <input

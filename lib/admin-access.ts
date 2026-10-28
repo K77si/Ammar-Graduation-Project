@@ -4,7 +4,7 @@ export const ADMIN_PERMISSIONS = [
   { key: 'users', label: 'المستخدمون', detail: 'إضافة وتعديل موظف أو فني أو رئيس قسم' },
   { key: 'approvals', label: 'الاعتمادات', detail: 'قبول الحسابات المعلقة أو إيقافها' },
   { key: 'analytics', label: 'التحليلات', detail: 'تقارير الأقسام وحالات البلاغات' },
-  { key: 'settings', label: 'الإعدادات', detail: 'اسم الجهة والتنبيهات وسياسة كلمة المرور' },
+  { key: 'settings', label: 'الإعدادات', detail: 'الأقسام والتنبيهات وسياسة كلمة المرور' },
   { key: 'delete_users', label: 'حذف الحسابات', detail: 'حذف مستخدم نهائياً' },
   { key: 'reset_password', label: 'إعادة تعيين كلمة المرور', detail: 'تغيير كلمة دخول مستخدم آخر' }
 ] as const

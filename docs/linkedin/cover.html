@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 750px; overflow: hidden; }
+  body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #1e1b4b 0%, #4c1d95 55%, #6d28d9 100%); color: #fff; display: grid; grid-template-columns: 1fr 1.15fr; gap: 36px; padding: 60px 0 60px 64px; position: relative; }
+  body::before { content: ''; position: absolute; inset: 0; background: radial-gradient(600px 400px at 90% 10%, rgba(167, 139, 250, 0.35), transparent 60%); }
+  .left { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 22px; }
+  .tag { align-self: flex-start; font-size: 14px; font-weight: 700; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); padding: 7px 14px; border-radius: 999px; }
+  .mark { width: 64px; height: 64px; border-radius: 18px; background: #fff; color: #5b21b6; display: grid; place-items: center; font-size: 26px; font-weight: 800; letter-spacing: -1px; }
+  h1 { font-size: 54px; font-weight: 800; line-height: 1.05; letter-spacing: -1px; }
+  h1 span { display: block; font-size: 30px; font-weight: 700; color: #c4b5fd; margin-top: 10px; letter-spacing: -0.3px; }
+  p { font-size: 18px; line-height: 1.55; color: #e9d5ff; max-width: 440px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chips b { font-size: 13px; font-weight: 600; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); padding: 6px 12px; border-radius: 8px; }
+  .author { font-size: 15px; font-weight: 600; color: #ddd6fe; }
+  .right { position: relative; display: flex; align-items: center; }
+  .frame { width: 100%; background: #fff; border-radius: 14px 0 0 14px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,0.45); }
+  .bar { height: 30px; background: #f3f4f6; display: flex; align-items: center; gap: 7px; padding: 0 14px; }
+  .bar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .bar i:nth-child(1) { background: #f87171; } .bar i:nth-child(2) { background: #fbbf24; } .bar i:nth-child(3) { background: #34d399; }
+  .shot { height: 470px; background: url('../screenshots/technician-similar-tickets.png') top center / cover; }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="tag">Graduation Project · 2026</div>
+    <div class="mark">sn</div>
+    <h1>Sanad<span>AI-Powered IT Helpdesk Platform</span></h1>
+    <p>Employees report technical issues, technicians resolve them through a clear workflow, and an AI assistant suggests solutions before a ticket is opened.</p>
+    <div class="chips"><b>Next.js</b><b>TypeScript</b><b>Supabase</b><b>PostgreSQL</b><b>Claude AI</b></div>
+    <div class="author">Ammar Alfahmi</div>
+  </div>
+  <div class="right">
+    <div class="frame"><div class="bar"><i></i><i></i><i></i></div><div class="shot"></div></div>
+  </div>
+</body>
+</html>

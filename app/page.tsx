@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useState, useRef } from 'react'
-import { createClient } from '@supabase/supabase-js'
 import {
   Activity, AlertTriangle, ArrowDownLeft, Bot, Check, ChevronDown, CircleHelp, FileKey2, Gauge, Hash, LayoutDashboard, LogOut, Menu, Moon, MoreHorizontal, Search, Settings2, Sun, Ticket, Trash2, Users, X, UserPlus, Info, Edit3, Lock, Send, Save, Bell, Lightbulb, Shield, Sliders, BarChart3, PieChart, RefreshCw, MessageSquare
 } from 'lucide-react'
@@ -19,10 +18,10 @@ import { DEPARTMENTS, statusLabel, TECH_DEPARTMENT, asRating, departmentLabel, f
 import { useGreeting } from '@/lib/use-greeting'
 import { loadTicketThread, readTicketMeta, sendTicketReply, subscribeTicketChanges, type ThreadMessage } from '@/lib/ticket-thread'
 import { closeStale, downloadText, isActive, isDelayed, monthKey, sortTickets, ticketAction, ticketsToCsv } from '@/lib/workflow'
+import { browserSupabase } from '@/lib/supabase-browser'
+import { useTheme } from '@/lib/theme'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const supabase = browserSupabase()
 
 interface UserProfile {
   id: string
@@ -67,7 +66,7 @@ interface TicketData {
 }
 
 export default function Page() {
-  const [dark, setDark] = useState(false)
+  const { dark, toggle } = useTheme()
   const [menu, setMenu] = useState(false)
   const [activeTab, setActiveTab] = useState('نظرة عامة')
   const [department, setDepartment] = useState('الكل')
@@ -140,7 +139,6 @@ export default function Page() {
 
   // الإعدادات
   const [settingTab, setSettingTab] = useState('عام')
-  const [companyName, setCompanyName] = useState('')
   const [departmentList, setDepartmentList] = useState<string[]>([...DEPARTMENTS])
   const [newDepartmentName, setNewDepartmentName] = useState('')
   const [ticketEvents, setTicketEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; created_at: string }>>([])
@@ -235,7 +233,6 @@ export default function Page() {
     const { data: auditData } = await supabase.from('admin_audit').select('id, actor_name, action, target_name, detail, created_at').order('created_at', { ascending: false }).limit(30)
     if (auditData) setAuditLogs(auditData)
     if (settingsData) {
-      if (settingsData.company_name) setCompanyName(settingsData.company_name)
       setSysSettings({
         ai_enabled: settingsData.ai_enabled ?? true,
         email_alerts: settingsData.email_alerts ?? true,
@@ -280,7 +277,6 @@ export default function Page() {
         const first = tabs.find(([, key]) => hasAdminPermission(permissions, key))
         if (first) setActiveTab(first[0])
       }
-      setAccessReady(true)
       if (!profile) {
         await supabase.auth.signOut()
         window.location.href = '/login'
@@ -290,6 +286,7 @@ export default function Page() {
         window.location.href = profile.role === 'technician' || profile.role === 'manager' ? '/technician' : '/employee'
         return
       }
+      setAccessReady(true)
       fetchAllData()
     }
     verifyAdminAccess()
@@ -305,7 +302,6 @@ export default function Page() {
     setSavingSettings(true)
     const { error } = await supabase.from('system_settings').upsert({
       id: 'main_settings',
-      company_name: companyName,
       departments: departmentList,
       ai_enabled: sysSettings.ai_enabled,
       email_alerts: sysSettings.email_alerts,
@@ -605,8 +601,10 @@ export default function Page() {
   const approvedCount = users.filter((u) => u.is_approved).length
   const pendingCount = users.filter((u) => u.is_approved === false).length
 
+  if (!accessReady) return <main className="app-shell" style={{ minHeight: '100vh' }} aria-busy="true" />
+
   return (
-    <main dir="rtl" className={dark ? 'app-shell dark' : 'app-shell'}>
+    <main dir="rtl" className="app-shell">
       {menu && <button aria-label="إغلاق القائمة" className="mobile-scrim" onClick={() => setMenu(false)} />}
       <aside className={`sidebar ${menu ? 'sidebar-open' : ''}`} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         <div>
@@ -616,11 +614,12 @@ export default function Page() {
             <button className="icon-btn mobile-close" aria-label="إغلاق القائمة" onClick={() => setMenu(false)}><X /></button>
           </div>
           <div className="workspace">
-            <div><span className="workspace-dot" /><span>{companyName || 'سند'}</span></div>
+            <div><span className="workspace-dot" /><span>بوابة مدير النظام</span></div>
           </div>
           <nav className="nav">
             <p>لوحة التحكم</p>
             {allowed('overview') && <Nav icon={<LayoutDashboard />} label="نظرة عامة" active={activeTab === 'نظرة عامة'} onClick={() => {setActiveTab('نظرة عامة'); setMenu(false)}} />}
+            <Nav icon={<Bot />} label="اسأل سند" active={activeTab === 'اسأل سند'} onClick={() => { setActiveTab('اسأل سند'); setMenu(false) }} />
             {allowed('tickets') && <Nav icon={<Ticket />} label="البلاغات" active={activeTab === 'البلاغات'} onClick={() => { setTicketStatus('الكل'); setActiveTab('البلاغات'); setMenu(false) }} />}
             {allowed('users') && <Nav icon={<Users />} label="المستخدمون" badge={users.length.toString()} active={activeTab === 'المستخدمون'} onClick={() => { setApprovedOnly(false); setActiveTab('المستخدمون'); setMenu(false) }} />}
             {allowed('approvals') && <Nav icon={<FileKey2 />} label="الاعتمادات" badge={pendingCount.toString()} active={activeTab === 'الاعتمادات'} onClick={() => {setActiveTab('الاعتمادات'); setMenu(false)}} />}
@@ -631,7 +630,7 @@ export default function Page() {
         </div>
 
         {/* زر تسجيل الخروج السفلي السريع */}
-        <div style={{ padding: '16px', borderTop: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}` }}>
+        <div style={{ padding: '16px', borderTop: `1px solid ${'var(--border)'}` }}>
           <button onClick={handleLogout} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', borderRadius: '10px', padding: '12px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', transition: '0.2s' }}>
             <LogOut size={16} />
             <span>تسجيل الخروج</span>
@@ -667,17 +666,17 @@ export default function Page() {
               </div>
             )}
             <button className="icon-btn" aria-label="المساعدة" onClick={() => setShowHelpModal(true)} title="معلومات النظام"><CircleHelp /></button>
-            <button className="theme-toggle" aria-label="تبديل المظهر" onClick={() => setDark(!dark)}>{dark ? <Sun /> : <Moon />}</button>
+            <button className="theme-toggle" aria-label="تبديل المظهر" onClick={toggle}>{dark ? <Sun /> : <Moon />}</button>
             <div style={{ position: 'relative' }}>
               <div className="top-avatar" onClick={() => { setShowProfileMenu(!showProfileMenu); setShowAlerts(false) }} style={{ cursor: 'pointer', userSelect: 'none' }} title="إعدادات الحساب">{adminName.slice(0, 2)}</div>
               {showProfileMenu && (
-                <div style={{ position: 'absolute', left: 0, top: '45px', background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', width: '220px', zIndex: 100, padding: '12px' }}>
-                  <div style={{ paddingBottom: '10px', borderBottom: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, marginBottom: '8px' }}>
-                    <strong style={{ display: 'block', fontSize: '13px', color: dark ? '#fff' : '#0f172a' }}>{adminName}</strong>
-                    {adminNumber && <small dir="ltr" style={{ display: 'block', color: '#7c3aed', fontSize: '12px', fontWeight: 800 }}>{adminNumber}</small>}
+                <div style={{ position: 'absolute', left: 0, top: '45px', background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', width: '220px', zIndex: 100, padding: '12px' }}>
+                  <div style={{ paddingBottom: '10px', borderBottom: `1px solid ${'var(--border)'}`, marginBottom: '8px' }}>
+                    <strong style={{ display: 'block', fontSize: '13px', color: 'var(--text)' }}>{adminName}</strong>
+                    {adminNumber && <small style={{ display: 'block', fontSize: '12px', color: '#94a3b8' }}>رقم الموظف: <b dir="ltr" style={{ color: '#7c3aed', fontWeight: 800 }}>{adminNumber}</b></small>}
                     <small dir="ltr" style={{ color: '#94a3b8', fontSize: '11px', wordBreak: 'break-all' }}>{currentEmail}</small>
                   </div>
-                  {allowed('settings') && <button onClick={() => { setShowProfileMenu(false); setActiveTab('الإعدادات'); }} style={{ width: '100%', textAlign: 'right', background: 'transparent', border: 'none', color: dark ? '#cbd5e1' : '#334155', padding: '8px', fontSize: '13px', cursor: 'pointer', borderRadius: '6px' }}><Settings2 size={14} style={{ display: 'inline', marginLeft: 6 }} /> إعدادات النظام</button>}
+                  {allowed('settings') && <button onClick={() => { setShowProfileMenu(false); setActiveTab('الإعدادات'); }} style={{ width: '100%', textAlign: 'right', background: 'transparent', border: 'none', color: 'var(--text)', padding: '8px', fontSize: '13px', cursor: 'pointer', borderRadius: '6px' }}><Settings2 size={14} style={{ display: 'inline', marginLeft: 6 }} /> إعدادات النظام</button>}
                   <button onClick={handleLogout} style={{ width: '100%', textAlign: 'right', background: 'transparent', border: 'none', color: '#ef4444', padding: '8px', fontSize: '13px', cursor: 'pointer', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}><LogOut size={14} /> تسجيل الخروج</button>
                 </div>
               )}
@@ -689,15 +688,16 @@ export default function Page() {
           <div className="page-heading">
             <div>
               <p className="day-greeting" style={greetingStyle}>{greeting}، {adminName}</p>
-              <div className="eyebrow">لوحة مدير النظام</div>
+              <div className="eyebrow">بوابة مدير النظام</div>
               <h1>
-                {activeTab === 'التحليلات' ? 'تحليلات البلاغات' :
+                {activeTab === 'اسأل سند' ? 'اسأل سند' :
+                 activeTab === 'التحليلات' ? 'تحليلات البلاغات' :
                  activeTab === 'الإعدادات' ? 'إعدادات النظام' :
                  activeTab === 'البلاغات' ? 'البلاغات' :
                  activeTab === 'المستخدمون' ? 'المستخدمون' :
                  activeTab === 'الاعتمادات' ? 'الاعتمادات' : 'نظرة عامة'}
               </h1>
-              <p>{activeTab === 'التحليلات' ? 'سرعة الاستلام والحل، وأداء الفنيين، ونسب البلاغات.' : activeTab === 'الإعدادات' ? 'إعدادات النظام، والحلول السريعة، والردود الجاهزة، والأمان.' : 'متابعة البلاغات والحسابات.'}</p>
+              <p>{activeTab === 'اسأل سند' ? 'اسأل عن البلاغات والحسابات، أو اطلب إنشاء مستخدم وتعديله.' : activeTab === 'التحليلات' ? 'سرعة الاستلام والحل، وأداء الفنيين، ونسب البلاغات.' : activeTab === 'الإعدادات' ? 'إعدادات النظام، والحلول السريعة، والردود الجاهزة، والأمان.' : 'متابعة البلاغات والحسابات.'}</p>
             </div>
             {(activeTab === 'نظرة عامة' || activeTab === 'المستخدمون' || activeTab === 'الاعتمادات') && (
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -716,6 +716,10 @@ export default function Page() {
           </div>
 
           {/* ----- (نظرة عامة) ----- */}
+          {activeTab === 'اسأل سند' && (
+            <AiAssistant supabase={supabase} mode="admin" onTicketsChanged={() => { void fetchAllData(true) }} />
+          )}
+
           {activeTab === 'نظرة عامة' && allowed('overview') && (
             <>
               <div className="stats-grid">
@@ -746,7 +750,6 @@ export default function Page() {
                   </section>
                 )}
               </div>
-              <div style={{ marginTop: '20px' }}><AiAssistant supabase={supabase} mode="admin" /></div>
             </>
           )}
 
@@ -784,27 +787,23 @@ export default function Page() {
           {/* ----- (الإعدادات) ----- */}
           {activeTab === 'الإعدادات' && allowed('settings') && (
             <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
-              <div style={{ background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '16px', width: '250px', overflow: 'hidden' }}>
-                <button onClick={() => setSettingTab('عام')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'عام' ? (dark ? '#1a1d2d' : '#f8fafc') : 'transparent', border: 'none', borderRight: settingTab === 'عام' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'عام' ? (dark ? '#fff' : '#0f172a') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'عام' ? 'bold' : 'normal' }}><Sliders size={18} /> إعدادات النظام</button>
-                <button onClick={() => setSettingTab('المساعد')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'المساعد' ? (dark ? '#1a1d2d' : '#f8fafc') : 'transparent', border: 'none', borderRight: settingTab === 'المساعد' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'المساعد' ? (dark ? '#fff' : '#0f172a') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'المساعد' ? 'bold' : 'normal' }}><Bot size={18} /> المساعد الذكي</button>
-                <button onClick={() => setSettingTab('الحلول')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'الحلول' ? (dark ? '#1a1d2d' : '#f8fafc') : 'transparent', border: 'none', borderRight: settingTab === 'الحلول' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'الحلول' ? (dark ? '#fff' : '#0f172a') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'الحلول' ? 'bold' : 'normal' }}><Lightbulb size={18} /> الحلول السريعة</button>
-                <button onClick={() => setSettingTab('الردود')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'الردود' ? (dark ? '#1a1d2d' : '#f8fafc') : 'transparent', border: 'none', borderRight: settingTab === 'الردود' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'الردود' ? (dark ? '#fff' : '#0f172a') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'الردود' ? 'bold' : 'normal' }}><MessageSquare size={18} /> الردود الجاهزة</button>
-                <button onClick={() => setSettingTab('إشعارات')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'إشعارات' ? (dark ? '#1a1d2d' : '#f8fafc') : 'transparent', border: 'none', borderRight: settingTab === 'إشعارات' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'إشعارات' ? (dark ? '#fff' : '#0f172a') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'إشعارات' ? 'bold' : 'normal' }}><Bell size={18} /> الإشعارات والتنبيهات</button>
-                <button onClick={() => setSettingTab('أمان')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'أمان' ? (dark ? '#1a1d2d' : '#f8fafc') : 'transparent', border: 'none', borderRight: settingTab === 'أمان' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'أمان' ? (dark ? '#fff' : '#0f172a') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'أمان' ? 'bold' : 'normal' }}><Shield size={18} /> الأمان والصلاحيات</button>
+              <div style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', width: '250px', overflow: 'hidden' }}>
+                <button onClick={() => setSettingTab('عام')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'عام' ? ('var(--field)') : 'transparent', border: 'none', borderRight: settingTab === 'عام' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'عام' ? ('var(--text)') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'عام' ? 'bold' : 'normal' }}><Sliders size={18} /> إعدادات النظام</button>
+                <button onClick={() => setSettingTab('المساعد')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'المساعد' ? ('var(--field)') : 'transparent', border: 'none', borderRight: settingTab === 'المساعد' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'المساعد' ? ('var(--text)') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'المساعد' ? 'bold' : 'normal' }}><Bot size={18} /> المساعد الذكي</button>
+                <button onClick={() => setSettingTab('الحلول')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'الحلول' ? ('var(--field)') : 'transparent', border: 'none', borderRight: settingTab === 'الحلول' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'الحلول' ? ('var(--text)') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'الحلول' ? 'bold' : 'normal' }}><Lightbulb size={18} /> الحلول السريعة</button>
+                <button onClick={() => setSettingTab('الردود')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'الردود' ? ('var(--field)') : 'transparent', border: 'none', borderRight: settingTab === 'الردود' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'الردود' ? ('var(--text)') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'الردود' ? 'bold' : 'normal' }}><MessageSquare size={18} /> الردود الجاهزة</button>
+                <button onClick={() => setSettingTab('إشعارات')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'إشعارات' ? ('var(--field)') : 'transparent', border: 'none', borderRight: settingTab === 'إشعارات' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'إشعارات' ? ('var(--text)') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'إشعارات' ? 'bold' : 'normal' }}><Bell size={18} /> الإشعارات والتنبيهات</button>
+                <button onClick={() => setSettingTab('أمان')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '16px', background: settingTab === 'أمان' ? ('var(--field)') : 'transparent', border: 'none', borderRight: settingTab === 'أمان' ? '3px solid #8b5cf6' : '3px solid transparent', color: settingTab === 'أمان' ? ('var(--text)') : '#94a3b8', cursor: 'pointer', textAlign: 'right', fontWeight: settingTab === 'أمان' ? 'bold' : 'normal' }}><Shield size={18} /> الأمان والصلاحيات</button>
               </div>
 
-              <div style={{ flex: 1, background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '16px', padding: '2rem' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '1.5rem', borderBottom: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, paddingBottom: '1rem', color: dark ? '#fff' : '#0f172a' }}>
+              <div style={{ flex: 1, background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', padding: '2rem' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '1.5rem', borderBottom: `1px solid ${'var(--border)'}`, paddingBottom: '1rem', color: 'var(--text)' }}>
                   {settingTab === 'عام' ? 'إعدادات النظام العامة' : settingTab === 'المساعد' ? 'المساعد الذكي' : settingTab === 'الحلول' ? 'الحلول السريعة' : settingTab === 'الردود' ? 'الردود الجاهزة' : settingTab === 'إشعارات' ? 'إعدادات التنبيهات' : 'الأمان والوصول'}
                 </h2>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   {settingTab === 'عام' && (
                     <>
-                      <div>
-                        <label htmlFor="company-name" style={{ display: 'block', fontSize: '13px', marginBottom: '6px', color: dark ? '#cbd5e1' : '#334155', fontWeight: '500' }}>اسم الجهة</label>
-                        <input id="company-name" type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} style={{ width: '100%', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none' }} />
-                      </div>
                       <ToggleOption label="اقتراح نوع العطل من نص البلاغ" desc="يقترح نوع العطل من وصف المشكلة، ويمكن للموظف تغييره." checked={sysSettings.auto_assign} onChange={() => setSysSettings({...sysSettings, auto_assign: !sysSettings.auto_assign})} dark={dark} />
                       <div>
                         <div style={{ fontSize: '13px', marginBottom: '6px' }}>الأقسام</div>
@@ -814,7 +813,7 @@ export default function Page() {
                           ))}
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                          <input aria-label="اسم القسم الجديد" value={newDepartmentName} onChange={(event) => setNewDepartmentName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addDepartment() } }} placeholder="قسم جديد" style={{ flex: 1, background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a' }} />
+                          <input aria-label="اسم القسم الجديد" value={newDepartmentName} onChange={(event) => setNewDepartmentName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addDepartment() } }} placeholder="قسم جديد" style={{ flex: 1, background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)' }} />
                           <button type="button" onClick={addDepartment} style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '8px', padding: '0 12px', cursor: 'pointer' }}>إضافة</button>
                         </div>
                         <small style={{ color: '#94a3b8' }}>لا يُحذف قسم فيه حسابات.</small>
@@ -825,7 +824,7 @@ export default function Page() {
                   {settingTab === 'المساعد' && (
                     <>
                       <ToggleOption label="تشغيل المساعد الذكي" desc="يقترح حلولاً للموظفين والفنيين قبل فتح البلاغ." checked={sysSettings.ai_enabled} onChange={() => setSysSettings({...sysSettings, ai_enabled: !sysSettings.ai_enabled})} dark={dark} />
-                      <AiAssistant supabase={supabase} mode="admin" />
+                      <AiAssistant supabase={supabase} mode="admin" onTicketsChanged={() => { void fetchAllData(true) }} />
                     </>
                   )}
 
@@ -904,7 +903,7 @@ export default function Page() {
                             <td>
                               <div className="person">
                                 <div className="avatar violet">{person.full_name ? person.full_name.slice(0, 2) : 'م'}</div>
-                                <div><b>{person.full_name}</b><small dir="ltr" style={{ display: 'block', color: '#7c3aed', fontWeight: 800 }}>{person.employee_number || '—'}</small><small dir="ltr" style={{ color: 'var(--text-muted)' }}>{person.email}</small></div>
+                                <div><b>{person.full_name}</b><small style={{ display: 'block', color: 'var(--text-muted)', fontWeight: 600 }}>رقم الموظف: <b dir="ltr" style={{ color: '#7c3aed', fontWeight: 800 }}>{person.employee_number || '—'}</b></small><small dir="ltr" style={{ color: 'var(--text-muted)' }}>{person.email}</small></div>
                               </div>
                             </td>
                             <td>{departmentLabel(person.department)}</td>
@@ -914,8 +913,8 @@ export default function Page() {
                             <td style={{ position: 'relative' }}>
                               <button className="more-btn" onClick={() => setActiveDropdown(activeDropdown === person.id ? null : person.id)}><MoreHorizontal /></button>
                               {activeDropdown === person.id && (
-                                <div style={{ position: 'absolute', left: '20px', top: '40px', background: dark ? '#1e1e2d' : '#ffffff', border: `1px solid ${dark ? '#333' : '#cbd5e1'}`, borderRadius: '8px', zIndex: 50, padding: '4px', minWidth: '150px', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-                                  {allowed('users') && <button onClick={() => openEditModal(person)} style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px', background: 'transparent', border: 'none', color: dark ? '#cbd5e1' : '#334155', cursor: 'pointer', fontSize: '13px', textAlign: 'right' }}>
+                                <div style={{ position: 'absolute', left: '20px', top: '40px', background: 'var(--surface)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', zIndex: 50, padding: '4px', minWidth: '150px', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+                                  {allowed('users') && <button onClick={() => openEditModal(person)} style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px', background: 'transparent', border: 'none', color: 'var(--text)', cursor: 'pointer', fontSize: '13px', textAlign: 'right' }}>
                                     <Edit3 size={14} /> تعديل البيانات
                                   </button>}
                                   {allowed('delete_users') && <button onClick={() => { setPendingDelete(person); setActiveDropdown(null) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px', background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '13px', textAlign: 'right' }}>
@@ -993,7 +992,7 @@ export default function Page() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', margin: '0 0 12px', fontSize: '13px' }}>
                 <span>تصدير بلاغات شهر:</span>
-                <input aria-label="شهر التصدير" type="month" value={exportMonth} onChange={(event) => setExportMonth(event.target.value)} style={{ background: dark ? '#1a1d2d' : '#f8fafc', color: 'inherit', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '6px 8px' }} />
+                <input aria-label="شهر التصدير" type="month" value={exportMonth} onChange={(event) => setExportMonth(event.target.value)} style={{ background: 'var(--field)', color: 'inherit', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '6px 8px' }} />
                 <button type="button" className="secondary-btn" onClick={() => {
                   const month = exportMonth || monthKey(new Date().toISOString())
                   const rows = tickets.filter((ticket) => monthKey(ticket.created_at) === month)
@@ -1050,7 +1049,7 @@ export default function Page() {
                                 {late && <span style={{ color: '#ef4444' }}>متأخر</span>}
                               </span>
                             </td>
-                            <td><b>{requester?.full_name || 'غير معروف'}</b>{requester?.employee_number && <small dir="ltr" style={{ display: 'block', color: '#7c3aed', fontWeight: 800 }}>{requester.employee_number}</small>}</td>
+                            <td><b>{requester?.full_name || 'غير معروف'}</b>{requester?.employee_number && <small style={{ display: 'block', color: 'var(--text-muted)', fontWeight: 600 }}>رقم الموظف: <b dir="ltr" style={{ color: '#7c3aed', fontWeight: 800 }}>{requester.employee_number}</b></small>}</td>
                             <td>{ticket.affected_department || requester?.department || 'غير محدد'}</td>
                             <td>{ticket.fault_type || '—'}</td>
                             <td>{ticket.assigneeName || worker?.full_name || 'بانتظار فني'}</td>
@@ -1070,7 +1069,7 @@ export default function Page() {
 
       {selectedTicket && (
         <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedTicket(null) }} style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div style={{ background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '640px', maxHeight: '85vh', overflowY: 'auto', color: dark ? '#fff' : '#0f172a' }}>
+          <div style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '640px', maxHeight: '85vh', overflowY: 'auto', color: 'var(--text)' }}>
             <div className="modal-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div>
                 <span className="ticket-no" style={{ ...ticketNoStyle, marginBottom: '4px' }}>{formatTicketNo(selectedTicket.ticket_number)}</span>
@@ -1080,10 +1079,10 @@ export default function Page() {
             </div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '1rem', fontSize: '13px', alignItems: 'center' }}>
               <StatusBadge status={selectedTicket.status} />
-              <span style={{ background: dark ? '#1a1d2d' : '#f8fafc', padding: '6px 12px', borderRadius: '8px' }}><b>مقدّم البلاغ:</b> {users.find((person) => person.id === selectedTicket.user_id)?.full_name || 'غير معروف'}{users.find((person) => person.id === selectedTicket.user_id)?.employee_number ? ` · ${users.find((person) => person.id === selectedTicket.user_id)?.employee_number}` : ''}</span>
-              <span style={{ background: dark ? '#1a1d2d' : '#f8fafc', padding: '6px 12px', borderRadius: '8px' }}><b>الفني:</b> {selectedTicket.assigneeName || users.find((person) => person.id === selectedTicket.assigned_to)?.full_name || 'بانتظار فني'}</span>
-              <span style={{ background: dark ? '#1a1d2d' : '#f8fafc', padding: '6px 12px', borderRadius: '8px' }}><b>الوقت:</b> {formatTicketWhen(selectedTicket.created_at)}</span>
-              {asRating(selectedTicket.rating) !== null && <span style={{ background: dark ? '#1a1d2d' : '#f8fafc', padding: '6px 12px', borderRadius: '8px' }}><b>التقييم:</b> {asRating(selectedTicket.rating)}/5</span>}
+              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>مقدّم البلاغ:</b> {users.find((person) => person.id === selectedTicket.user_id)?.full_name || 'غير معروف'}{users.find((person) => person.id === selectedTicket.user_id)?.employee_number ? <> · رقم الموظف: <b dir="ltr">{users.find((person) => person.id === selectedTicket.user_id)?.employee_number}</b></> : null}</span>
+              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>الفني:</b> {selectedTicket.assigneeName || users.find((person) => person.id === selectedTicket.assigned_to)?.full_name || 'بانتظار فني'}</span>
+              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>الوقت:</b> {formatTicketWhen(selectedTicket.created_at)}</span>
+              {asRating(selectedTicket.rating) !== null && <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>التقييم:</b> {asRating(selectedTicket.rating)}/5</span>}
             </div>
             {ticketActionMsg && <p style={{ fontSize: '13px', margin: '0 0 10px', color: ticketActionMsg.startsWith('تم') ? '#10b981' : '#ef4444' }}>{ticketActionMsg}</p>}
             <TicketTools
@@ -1120,7 +1119,7 @@ export default function Page() {
               <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>البلاغ {statusLabel(selectedTicket.status)}، ولا يمكن إضافة ردود عليه.</p>
             ) : (
               <form onSubmit={handleAdminReply} style={{ display: 'flex', gap: '8px' }}>
-                <input aria-label="الرد" value={ticketReply} onChange={(event) => setTicketReply(event.target.value)} placeholder="اكتب رداً يظهر للموظف والفني..." style={{ flex: 1, background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '10px', padding: '10px 12px', color: dark ? '#fff' : '#0f172a', outline: 'none' }} />
+                <input aria-label="الرد" value={ticketReply} onChange={(event) => setTicketReply(event.target.value)} placeholder="اكتب رداً يظهر للموظف والفني..." style={{ flex: 1, background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '10px', padding: '10px 12px', color: 'var(--text)', outline: 'none' }} />
                 <button type="submit" className="primary-btn" style={{ padding: '0 14px' }}><Send size={16} style={{ transform: 'rotate(180deg)' }} /></button>
               </form>
             )}
@@ -1133,7 +1132,7 @@ export default function Page() {
       {/* النوافذ المنبثقة */}
       {showHelpModal && (
         <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowHelpModal(false) }} style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '420px', boxShadow: '0 25px 50px rgba(0,0,0,0.5)', color: dark ? '#fff' : '#0f172a' }}>
+          <div style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '420px', boxShadow: '0 25px 50px rgba(0,0,0,0.5)', color: 'var(--text)' }}>
             <div className="modal-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '18px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}><Info size={20} color="#8b5cf6" /> حول النظام</h3>
               <button onClick={() => setShowHelpModal(false)} aria-label="إغلاق" title="إغلاق" style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={20} /></button>
@@ -1147,7 +1146,7 @@ export default function Page() {
 
       {showAddModal && (
         <div className="modal-backdrop" style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}>
-          <div style={{ background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: grantTarget === 'add' ? '520px' : '450px', maxHeight: '90vh', overflow: 'auto', color: dark ? '#fff' : '#0f172a' }}>
+          <div style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: grantTarget === 'add' ? '520px' : '450px', maxHeight: '90vh', overflow: 'auto', color: 'var(--text)' }}>
             {grantTarget === 'add' ? (
               <AdminOwnerGate
                 dark={dark}
@@ -1179,33 +1178,33 @@ export default function Page() {
             <form onSubmit={handleAddUser} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label htmlFor="add-name" style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>الاسم الكامل</label>
-                <input id="add-name" type="text" required value={newFullName} onChange={(e) => setNewFullName(e.target.value)} style={{ width: '100%', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none' }} />
+                <input id="add-name" type="text" required value={newFullName} onChange={(e) => setNewFullName(e.target.value)} style={{ width: '100%', background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)', outline: 'none' }} />
               </div>
               <div>
                 <label htmlFor="add-username" style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>البريد</label>
-                <div dir="ltr" style={{ display: 'flex', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', overflow: 'hidden' }}>
-                  <input id="add-username" type="text" required value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="name" style={{ flex: 1, background: 'transparent', border: 'none', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none', direction: 'ltr', textAlign: 'left' }} dir="ltr" />
+                <div dir="ltr" style={{ display: 'flex', background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', overflow: 'hidden' }}>
+                  <input id="add-username" type="text" required value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="name" style={{ flex: 1, background: 'transparent', border: 'none', padding: '10px', color: 'var(--text)', outline: 'none', direction: 'ltr', textAlign: 'left' }} dir="ltr" />
                   <span style={{ padding: '0 12px', color: '#8b5cf6', fontSize: '13px', display: 'flex', alignItems: 'center', background: 'rgba(139, 92, 246, 0.1)', direction: 'ltr' }}>{COMPANY_DOMAIN}</span>
                 </div>
                 <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px', display: 'block' }}>البريد لا يتكرر. يظهر بالشكل: الاسم ثم {COMPANY_DOMAIN}</small>
               </div>
               <div>
                 <label htmlFor="add-number" style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>رقم الموظف</label>
-                <input id="add-number" inputMode="numeric" required value={newEmployeeNumber} onChange={(e) => setNewEmployeeNumber(e.target.value)} placeholder="445213615" maxLength={9} style={{ width: '100%', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none', direction: 'ltr', textAlign: 'left' }} dir="ltr" />
+                <input id="add-number" inputMode="numeric" required value={newEmployeeNumber} onChange={(e) => setNewEmployeeNumber(e.target.value)} placeholder="445213615" maxLength={9} style={{ width: '100%', background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)', outline: 'none', direction: 'ltr', textAlign: 'left' }} dir="ltr" />
                 <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px', display: 'block' }}>9 أرقام، ولا يُعطى لموظف آخر.</small>
               </div>
               <div>
                 <label htmlFor="add-password" style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>كلمة المرور الأولية (مؤقتة)</label>
-                <input id="add-password" type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="أدخل كلمة مرور أولية" style={{ width: '100%', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none' }} dir="ltr" />
+                <input id="add-password" type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="أدخل كلمة مرور أولية" style={{ width: '100%', background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)', outline: 'none' }} dir="ltr" />
                 <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px', display: 'block' }}>يغيّرها المستخدم عند أول دخول.</small>
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>القسم والدور (الصلاحية)</label>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                  <select aria-label="القسم" value={isTechnicianRole(newRole) ? TECH_DEPARTMENT : newDepartment} disabled={isTechnicianRole(newRole)} onChange={(e) => setNewDepartment(e.target.value)} style={{ flex: 1, background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none' }}>
+                  <select aria-label="القسم" value={isTechnicianRole(newRole) ? TECH_DEPARTMENT : newDepartment} disabled={isTechnicianRole(newRole)} onChange={(e) => setNewDepartment(e.target.value)} style={{ flex: 1, background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)', outline: 'none' }}>
                     {(isTechnicianRole(newRole) ? [TECH_DEPARTMENT] : availableDepartmentsForAdd).map(dept => <option key={dept} value={dept}>{dept}</option>)}
                   </select>
-                  <select aria-label="الدور" value={newRole} onChange={(e) => { const role = e.target.value; setNewRole(role); if (isTechnicianRole(role)) setNewDepartment(TECH_DEPARTMENT) }} style={{ flex: 1, background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none' }}>
+                  <select aria-label="الدور" value={newRole} onChange={(e) => { const role = e.target.value; setNewRole(role); if (isTechnicianRole(role)) setNewDepartment(TECH_DEPARTMENT) }} style={{ flex: 1, background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)', outline: 'none' }}>
                     <option value="user">موظف</option>
                     <option value="department_head">رئيس قسم</option>
                     <option value="technician">فني دعم</option>
@@ -1224,7 +1223,7 @@ export default function Page() {
 
       {showEditModal && (
         <div className="modal-backdrop" style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}>
-          <div style={{ background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: grantTarget === 'edit' ? '520px' : '450px', maxHeight: '90vh', overflow: 'auto', color: dark ? '#fff' : '#0f172a' }}>
+          <div style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: grantTarget === 'edit' ? '520px' : '450px', maxHeight: '90vh', overflow: 'auto', color: 'var(--text)' }}>
             {grantTarget === 'edit' ? (
               <AdminOwnerGate
                 dark={dark}
@@ -1256,30 +1255,30 @@ export default function Page() {
             <form onSubmit={handleUpdateUser} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label htmlFor="edit-name" style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>الاسم الكامل</label>
-                <input id="edit-name" type="text" required value={editFullName} onChange={(e) => setEditFullName(e.target.value)} style={{ width: '100%', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none' }} />
+                <input id="edit-name" type="text" required value={editFullName} onChange={(e) => setEditFullName(e.target.value)} style={{ width: '100%', background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)', outline: 'none' }} />
               </div>
               <div>
                 <label htmlFor="edit-email" style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>البريد</label>
-                <input id="edit-email" type="text" value={editEmail} readOnly dir="ltr" style={{ width: '100%', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: '#64748b', outline: 'none', direction: 'ltr', textAlign: 'left' }} />
+                <input id="edit-email" type="text" value={editEmail} readOnly dir="ltr" style={{ width: '100%', background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: '#64748b', outline: 'none', direction: 'ltr', textAlign: 'left' }} />
               </div>
               <div>
                 <label htmlFor="edit-number" style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>رقم الموظف</label>
-                <input id="edit-number" inputMode="numeric" required value={editEmployeeNumber} onChange={(e) => setEditEmployeeNumber(e.target.value)} maxLength={9} dir="ltr" style={{ width: '100%', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none', direction: 'ltr', textAlign: 'left' }} />
+                <input id="edit-number" inputMode="numeric" required value={editEmployeeNumber} onChange={(e) => setEditEmployeeNumber(e.target.value)} maxLength={9} dir="ltr" style={{ width: '100%', background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)', outline: 'none', direction: 'ltr', textAlign: 'left' }} />
               </div>
               {allowed('reset_password') && <div>
                 <label htmlFor="edit-password" style={{ display: 'block', fontSize: '13px', marginBottom: '6px', color: '#8b5cf6' }}><Lock size={14} style={{ display: 'inline', marginLeft: '6px' }} /> إعادة تعيين كلمة المرور</label>
-                <input id="edit-password" type="password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="اتركها فارغة للإبقاء على كلمة الدخول الحالية" style={{ width: '100%', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#8b5cf6' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none' }} dir="ltr" />
+                <input id="edit-password" type="password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="اتركها فارغة للإبقاء على كلمة الدخول الحالية" style={{ width: '100%', background: 'var(--field)', border: '1px solid var(--field-border)', borderRadius: '8px', padding: '10px', color: 'var(--text)', outline: 'none' }} dir="ltr" />
               </div>}
               <div>
                 <label htmlFor="edit-department" style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>القسم</label>
-                <select id="edit-department" value={isTechnicianRole(editRole) ? TECH_DEPARTMENT : editDepartment} disabled={isTechnicianRole(editRole)} onChange={(e) => setEditDepartment(e.target.value)} style={{ width: '100%', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none' }}>
+                <select id="edit-department" value={isTechnicianRole(editRole) ? TECH_DEPARTMENT : editDepartment} disabled={isTechnicianRole(editRole)} onChange={(e) => setEditDepartment(e.target.value)} style={{ width: '100%', background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)', outline: 'none' }}>
                   {(isTechnicianRole(editRole) ? [TECH_DEPARTMENT] : editDepartmentOptions).map((dept) => <option key={dept} value={dept}>{dept}</option>)}
                 </select>
                 {isTechnicianRole(editRole) && <small style={{ color: '#94a3b8', fontSize: '11px', marginTop: '6px', display: 'block' }}>فني الدعم يتبع قسم الدعم التقني فقط.</small>}
               </div>
               <div>
                 <label htmlFor="edit-role" style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>الصلاحية (الدور)</label>
-                <select id="edit-role" value={editRole} onChange={(e) => { const role = e.target.value; setEditRole(role); if (isTechnicianRole(role)) setEditDepartment(TECH_DEPARTMENT) }} style={{ width: '100%', background: dark ? '#1a1d2d' : '#f8fafc', border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`, borderRadius: '8px', padding: '10px', color: dark ? '#fff' : '#0f172a', outline: 'none' }}>
+                <select id="edit-role" value={editRole} onChange={(e) => { const role = e.target.value; setEditRole(role); if (isTechnicianRole(role)) setEditDepartment(TECH_DEPARTMENT) }} style={{ width: '100%', background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)', outline: 'none' }}>
                   <option value="user">موظف</option>
                   <option value="department_head">رئيس قسم</option>
                   <option value="technician">فني دعم</option>
@@ -1296,7 +1295,7 @@ export default function Page() {
       )}
       {pendingDelete && (
         <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleting) setPendingDelete(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '1rem' }}>
-          <div style={{ background: dark ? '#13151f' : '#ffffff', border: `1px solid ${dark ? '#1e2230' : '#e2e8f0'}`, borderRadius: '16px', padding: '1.5rem', width: '100%', maxWidth: '400px', color: dark ? '#fff' : '#0f172a' }}>
+          <div style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', padding: '1.5rem', width: '100%', maxWidth: '400px', color: 'var(--text)' }}>
             <h3 style={{ margin: '0 0 8px', fontSize: '17px', display: 'flex', alignItems: 'center', gap: '8px' }}><Trash2 size={18} color="#ef4444" /> حذف الحساب</h3>
             <p style={{ margin: '0 0 1.25rem', fontSize: '14px', lineHeight: 1.8, color: '#64748b' }}>سيُحذف حساب «{pendingDelete.full_name}» نهائياً، ولن يتمكن صاحبه من الدخول. لا يمكن التراجع عن هذا الإجراء.</p>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
@@ -1334,9 +1333,9 @@ function ProgressBar({ label, value, color }: { label: string, value: number, co
 }
 function ToggleOption({ label, desc, checked, onChange, dark }: { label: string, desc: string, checked: boolean, onChange: () => void, dark: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: dark ? '#1a1d2d' : '#f8fafc', padding: '16px', borderRadius: '12px', border: `1px solid ${dark ? '#2a2e43' : '#e2e8f0'}` }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--field)', padding: '16px', borderRadius: '12px', border: `1px solid ${'var(--border)'}` }}>
       <div>
-        <strong style={{ display: 'block', fontSize: '14px', marginBottom: '4px', color: dark ? '#fff' : '#0f172a' }}>{label}</strong>
+        <strong style={{ display: 'block', fontSize: '14px', marginBottom: '4px', color: 'var(--text)' }}>{label}</strong>
         <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{desc}</p>
       </div>
       <div onClick={onChange} style={{ width: '44px', height: '24px', background: checked ? '#8b5cf6' : '#475569', borderRadius: '12px', position: 'relative', cursor: 'pointer', transition: '0.3s' }}>

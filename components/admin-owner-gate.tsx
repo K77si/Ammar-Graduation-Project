@@ -4,7 +4,6 @@ import { ADMIN_PERMISSIONS } from '@/lib/admin-access'
 import { X } from 'lucide-react'
 
 export function AdminOwnerGate({
-  dark,
   title,
   username,
   password,
@@ -44,11 +43,11 @@ export function AdminOwnerGate({
 }) {
   const field = {
     width: '100%',
-    background: dark ? '#1a1d2d' : '#f8fafc',
-    border: `1px solid ${dark ? '#2a2e43' : '#cbd5e1'}`,
+    background: 'var(--field)',
+    border: `1px solid ${'var(--field-border)'}`,
     borderRadius: '8px',
     padding: '10px',
-    color: dark ? '#fff' : '#0f172a',
+    color: 'var(--text)',
     outline: 'none'
   }
   return (
@@ -81,7 +80,7 @@ export function AdminOwnerGate({
           {ADMIN_PERMISSIONS.map((item) => {
             const checked = permissions.includes(item.key)
             return (
-              <label key={item.key} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '10px 12px', borderRadius: '10px', border: `1px solid ${checked ? '#c4b5fd' : (dark ? '#2a2e43' : '#e2e8f0')}`, background: checked ? 'rgba(139, 92, 246, 0.08)' : 'transparent', cursor: 'pointer' }}>
+              <label key={item.key} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '10px 12px', borderRadius: '10px', border: `1px solid ${checked ? '#c4b5fd' : ('var(--border)')}`, background: checked ? 'rgba(139, 92, 246, 0.08)' : 'transparent', cursor: 'pointer' }}>
                 <input type="checkbox" checked={checked} onChange={() => onToggle(item.key)} style={{ marginTop: '3px' }} />
                 <span>
                   <b style={{ display: 'block', fontSize: '14px' }}>{item.label}</b>
