@@ -284,14 +284,6 @@ export function AiAssistant({
         </button>
       </form>
 
-      {!compact && !guiding && (
-        <div className="ai-gemini-prompts">
-          {prompts.map((prompt) => (
-            <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>
-          ))}
-        </div>
-      )}
-
       {image && <p className="ai-gemini-meta">مرفقة: {image.name}</p>}
       {status.configured === false && <p className="ai-gemini-meta">اقتراح الحل يحتاج مفتاح المساعد على الخادم. أسئلة التذاكر تعمل الآن.</p>}
       {mode === 'admin' && status.configured && !status.enabled && <p className="ai-gemini-meta">المساعد متوقف من الإعدادات.</p>}
@@ -356,6 +348,15 @@ export function AiAssistant({
           ))}
           {mode === 'employee' && helpReply && reply.urgent && !solved && !filedNo && <p className="ai-box-note">يبدو أن العمل متوقف، وسيُرفع البلاغ بدرجة عاجل.</p>}
           {mode === 'technician' && helpReply && reply.needs_ticket && <p className="ai-box-note">قد يحتاج تصعيداً.</p>}
+        </div>
+      )}
+
+      {!compact && !guiding && (
+        <div className="ai-gemini-prompts">
+          {reply && <p className="ai-gemini-again">خدمة أخرى</p>}
+          {prompts.map((prompt) => (
+            <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>
+          ))}
         </div>
       )}
     </section>
