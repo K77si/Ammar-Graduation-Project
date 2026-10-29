@@ -2,14 +2,14 @@
 
 **An AI-powered IT helpdesk platform for organizations, built in Arabic (RTL).**
 
-Employees report technical issues, technicians resolve them through a clear workflow, department heads follow their teams, and administrators get real performance metrics. An AI assistant suggests solutions before a ticket is even opened.
+Employees report technical issues, technicians resolve them through a clear workflow, department heads follow their teams, and administrators get real performance metrics. Sanad, the in-app assistant, suggests a solution before a ticket is opened and can carry out the next step within the signed-in person's permissions.
 
 **Live demo:** [sanad-lyart-seven.vercel.app](https://sanad-lyart-seven.vercel.app)
 
-> منصة «سند» لإدارة بلاغات الدعم الفني داخل الجهات، بواجهة عربية كاملة ومساعد ذكي يقترح الحلول قبل فتح البلاغ.
+> منصة «سند» لإدارة بلاغات الدعم الفني داخل الجهات، بواجهة عربية كاملة. المساعد يقترح الحل قبل فتح البلاغ، وينفّذ الخطوة التالية داخل صلاحية الشخص.
 > مشروع تخرج: عمار عابد الفهمي.
 
-![Sanad technician view](docs/screenshots/technician-similar-tickets.png)
+![Ask Sanad](docs/screenshots/ask-sanad.png)
 
 ---
 
@@ -17,7 +17,7 @@ Employees report technical issues, technicians resolve them through a clear work
 
 - **Four roles with real permissions:** employee, department head, technician, and administrator (with granular admin permissions and a protected owner account).
 - **Complete ticket lifecycle:** open → in progress → waiting for employee → resolved → closed, with auto-close after 3 days, reopening within 7 days, cancellation rules, and a full audit trail for every change.
-- **AI assistant (Anthropic Claude):** gives employees safe self-help steps and technicians deeper diagnostic steps. It learns from the organization's quick solutions and from fixes technicians wrote on past tickets.
+- **Sanad, the in-app assistant:** suggests a solution before a ticket is opened, then runs the next action from a menu adapted to the signed-in role. Within that person's permissions it can create an account, reset a password, assign or close a ticket, add an internal note, and record a rating. Every Sanad action is labeled on the ticket and on the account log, separate from manual work. It also gives employees safe self-help steps and technicians deeper diagnostic steps, using the organization's quick solutions and fixes written on past tickets.
 - **Arabic text matching:** a custom similarity algorithm (Arabic normalization, stop words, light stemming) shows matching solutions while the employee types, and shows technicians how similar tickets were solved before.
 - **Performance metrics:** average time to claim, time to resolve, share claimed within a day, satisfaction rating, reopen rate, and a per-technician table — all computed from the real ticket history.
 - **Real-time updates and desktop notifications** for urgent tickets, assignments, and employee replies.
@@ -48,17 +48,21 @@ Business rules are enforced inside the database, so they cannot be bypassed by c
 
 ## Screenshots
 
-| Admin overview & alerts | Performance metrics |
+| Ask Sanad | Admin overview & alerts |
 |---|---|
-| ![Admin overview](docs/screenshots/admin-overview.png) | ![Performance metrics](docs/screenshots/admin-performance.png) |
+| ![Ask Sanad](docs/screenshots/ask-sanad.png) | ![Admin overview](docs/screenshots/admin-overview.png) |
 
-| New ticket with suggested solution | Department head |
+| Performance metrics | New ticket with suggested solution |
 |---|---|
-| ![New ticket](docs/screenshots/employee-new-ticket.png) | ![Department head](docs/screenshots/department-head.png) |
+| ![Performance metrics](docs/screenshots/admin-performance.png) | ![New ticket](docs/screenshots/employee-new-ticket.png) |
 
-| Employee portal | Quick solutions management |
+| Employee portal | Department head |
 |---|---|
-| ![Employee portal](docs/screenshots/employee-portal.png) | ![Quick solutions](docs/screenshots/admin-quick-solutions.png) |
+| ![Employee portal](docs/screenshots/employee-portal.png) | ![Department head](docs/screenshots/department-head.png) |
+
+| Technician workspace | Quick solutions management |
+|---|---|
+| ![Technician workspace](docs/screenshots/technician-portal.png) | ![Quick solutions](docs/screenshots/admin-quick-solutions.png) |
 
 ## Project structure
 
