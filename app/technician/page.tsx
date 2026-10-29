@@ -608,7 +608,7 @@ export default function TechnicianPage() {
               </details>
             )}
             {selectedTicket.status !== 'مغلقة' && selectedTicket.status !== 'ملغاة' && (
-              <AiAssistant key={selectedTicket.id} supabase={supabase} mode="technician" compact ticketId={selectedTicket.id} seed={`${selectedTicket.title}${selectedTicket.fault_type ? ` (نوع العطل: ${selectedTicket.fault_type})` : ''}`} onTicketsChanged={() => { void fetchQueue(true); void openTicket(selectedTicket) }} />
+              <AiAssistant key={selectedTicket.id} supabase={supabase} mode="technician" compact ticketId={selectedTicket.id} onTicketsChanged={() => { void fetchQueue(true); void openTicket(selectedTicket) }} />
             )}
             <div>
               <h4 style={{ fontSize: '14px', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} /> المحادثة</h4>

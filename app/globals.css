@@ -875,7 +875,8 @@ details.fold[open] > summary::after {
 
 .ai-gemini-prompts {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
 }
 
@@ -923,13 +924,15 @@ details.fold[open] > summary::after {
 }
 
 .ai-gemini-prompts button {
+  width: 100%;
   background: rgba(139, 92, 246, 0.08);
   color: var(--text);
   border: 1px solid rgba(139, 92, 246, 0.22);
-  border-radius: 999px;
-  padding: 8px 14px;
+  border-radius: 14px;
+  padding: 10px 14px;
   font-size: 13px;
   font-weight: 800;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -1138,8 +1141,15 @@ details.fold[open] > summary::after {
 
 .ai-box-actions {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
-  flex-wrap: wrap;
+}
+
+.ai-box-actions .ai-primary,
+.ai-box-actions .ai-ghost {
+  width: 100%;
+  text-align: start;
 }
 
 .ai-primary {

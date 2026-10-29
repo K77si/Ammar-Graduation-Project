@@ -150,8 +150,37 @@ function personChoices(list: Person[]): DeskChoice[] {
 function ticketChoices(rows: Row[]): DeskChoice[] {
   return rows.slice(0, 30).map((row) => ({
     id: row.id,
-    label: `${formatTicketNo(row.ticket_number)} ${problemOf(row).slice(0, 48)}`
+    label: `${formatTicketNo(row.ticket_number)} · ${problemOf(row).slice(0, 42)} · ${row.status}`
   }))
+}
+
+function mineTickets(desk: Desk, actor: Actor) {
+  return desk.rows.filter((row) => row.assigned_technician === actor.id && isActive(row.status))
+}
+
+function queueTickets(desk: Desk) {
+  return desk.rows.filter((row) => row.status === 'مفتوحة' && !row.assigned_technician)
+}
+
+function namedTicket(desk: Desk, actor: Actor, question: string, ticketId = '', scope: 'mine' | 'queue' | 'current' = 'current') {
+  const number = question.match(/(\d{3,})/)
+  if (number) {
+    const byNumber = ticketByNumber(desk, number[1])
+    if (byNumber) return byNumber
+  }
+  if (ticketId) {
+    const current = desk.rows.find((row) => row.id === ticketId)
+    if (current) return current
+  }
+  if (scope === 'mine') {
+    const mine = mineTickets(desk, actor)
+    return mine.length === 1 ? mine[0] : null
+  }
+  if (scope === 'queue') {
+    const open = queueTickets(desk)
+    return open.length === 1 ? open[0] : null
+  }
+  return null
 }
 
 function peopleMenu(people: Person[], message: string, intent: string): DeskReply {
@@ -275,7 +304,7 @@ function statusHelp(question: string) {
     [/بانتظار/, 'بانتظار رد الموظف: الفني طلب معلومة، ويعود للعمل بعد الرد.'],
     [/منجز/, 'منجز: كتب الفني الحل، وبانتظار تأكيد الموظف، ثم يُغلق بعد 3 أيام.'],
     [/مغلق/, 'مغلق: انتهى البلاغ، ويمكن لصاحبه إعادة فتحه خلال 7 أيام.'],
-    [/ملغ/, 'ملغى: ألغاه صاحبه قبل أن يستلمه فني.']
+    [/ملغ/, 'ملغاة: أُلغي البلاغ ولن يُعالَج.']
   ] as const
   const hit = lines.filter(([pattern]) => pattern.test(question)).map(([, text]) => text)
   return hit.length ? hit.join('\n') : lines.map(([, text]) => text).join('\n')
@@ -377,13 +406,19 @@ function employeeDesk(desk: Desk, actor: Actor, question: string): DeskReply | n
   return null
 }
 
-function technicianDesk(desk: Desk, actor: Actor, question: string): DeskReply | null {
-  if (/وردية|أسلم|اسلم|تسليم/.test(question)) {
+function technicianDesk(desk: Desk, actor: Actor, question: string, ticketId = ''): DeskReply | null {
+  if (/وردية|أسلم الوردية|اسلم الوردية|تسليم الوردية/.test(question)) {
     const mine = desk.rows.filter((row) => row.assigned_technician === actor.id && isActive(row.status))
     const urgent = desk.rows.filter((row) => row.status === 'مفتوحة' && !row.assigned_technician && (row.priority === 'عاجل' || row.is_outage))
     return say(`${listLines(mine, actor.id, desk.names, 'مفتوح عندك للتسليم')}\n${listLines(urgent, actor.id, desk.names, 'عاجل لم يُستلم')}`, { kind: 'stats' })
   }
-  if (/أستلم أولا|استلم اولا|أبدأ بأي|ابدأ بأي|أول بلاغ|اول بلاغ/.test(question)) {
+  if (/بلاغاتي|المسندة لي|المسندة لك/.test(question)) {
+    return say(listLines(mineTickets(desk, actor), actor.id, desk.names, 'بلاغاتك الآن'), { kind: 'stats' })
+  }
+  if (/غير المسند|بانتظار الاستلام|لم يُستلم|لم يستلم/.test(question)) {
+    return say(listLines(queueTickets(desk), actor.id, desk.names, 'بانتظار الاستلام'), { kind: 'stats' })
+  }
+  if (/أستلم أولا|استلم اولا|أبدأ بأي|ابدأ بأي|أول بلاغ|اول بلاغ|من أين أبدأ|من اين ابدأ/.test(question)) {
     const next = desk.rows.filter((row) => row.status === 'مفتوحة' && !row.assigned_technician).sort((a, b) => Number(delayed(b)) - Number(delayed(a)) || Number(b.priority === 'عاجل') - Number(a.priority === 'عاجل'))
     return say(listLines(next, actor.id, desk.names, 'ابدأ بهذه البلاغات'), { kind: 'stats' })
   }
@@ -398,10 +433,120 @@ function technicianDesk(desk: Desk, actor: Actor, question: string): DeskReply |
     const rows = desk.rows.filter(delayed)
     return say(listLines(rows, actor.id, desk.names, 'بلاغات متأخرة أكثر من يوم'), { kind: 'stats' })
   }
+  if (/استلم|استلام|خذه|خُذه|باخذه|بأخذه/.test(question)) {
+    const numbered = /(\d{3,})/.test(question)
+    let hit = namedTicket(desk, actor, question, ticketId, 'queue')
+    const open = queueTickets(desk)
+    if (hit && (hit.assigned_technician || hit.status !== 'مفتوحة') && !numbered) {
+      if (hit.assigned_technician === actor.id && !open.length) return say(`${formatTicketNo(hit.ticket_number)} مسند لك بالفعل، وحالته «${hit.status}».`, { kind: 'stats' })
+      hit = open.length === 1 ? open[0] : null
+    }
+    if (!hit) {
+      if (!open.length) return say('ما فيه بلاغ مفتوح بانتظار الاستلام.', { kind: 'stats' })
+      return say('اختر البلاغ الذي تستلمه.', { choices: [...ticketChoices(open), CANCEL], draft: { intent: 'claim', step: 'ticket' } })
+    }
+    if (hit.assigned_technician) return say(`${formatTicketNo(hit.ticket_number)} مع فني بالفعل.`, { kind: 'stats' })
+    if (hit.status !== 'مفتوحة') return say('يُستلم البلاغ وهو مفتوح فقط.', { kind: 'stats' })
+    return say(`استلام ${formatTicketNo(hit.ticket_number)}: ${problemOf(hit).slice(0, 48)}.`, {
+      choices: [CANCEL],
+      confirm: { action: 'claim', label: 'استلم البلاغ', payload: { ticketId: hit.id } }
+    })
+  }
+  if (/أعد للمعالجة|اعد للمعالجة|أرجع للمعالجة|ارجع للمعالجة|رجعه للمعالجة|رجّعه للمعالجة|كمّل عليه|كمل عليه/.test(question)) {
+    const hit = namedTicket(desk, actor, question, ticketId, 'mine')
+    const mine = mineTickets(desk, actor).filter((row) => row.status === 'بانتظار الموظف' || row.status === 'منجزة')
+    if (!hit) {
+      if (!mine.length) return say('ما فيه بلاغ عندك يمكن إرجاعه إلى المعالجة.', { kind: 'stats' })
+      return say('اختر البلاغ الذي يرجع إلى قيد المعالجة.', { choices: [...ticketChoices(mine), CANCEL], draft: { intent: 'resume', step: 'ticket' } })
+    }
+    if (hit.assigned_technician !== actor.id) return say('الرجوع للمعالجة للبلاغ المسند إليك.', { kind: 'stats' })
+    if (hit.status !== 'بانتظار الموظف' && hit.status !== 'منجزة') return say(`البلاغ ${formatTicketNo(hit.ticket_number)} حالته «${hit.status}». الرجوع للمعالجة يكون وهو بانتظار الموظف أو منجز.`, { kind: 'stats' })
+    return say(`إرجاع ${formatTicketNo(hit.ticket_number)} إلى قيد المعالجة.`, {
+      choices: [CANCEL],
+      confirm: { action: 'status', label: 'أرجعه للمعالجة', payload: { ticketId: hit.id, status: 'قيد المعالجة' } }
+    })
+  }
+  if (/اطلب معلومة|طلب معلومة|معلومة من الموظف|أسأله|اسأله|اساله|ناقص معلوم/.test(question)) {
+    const hit = namedTicket(desk, actor, question, ticketId, 'mine')
+    const mine = mineTickets(desk, actor).filter((row) => row.status === 'قيد المعالجة')
+    if (!hit) {
+      if (!mine.length) return say('ما فيه بلاغ قيد المعالجة عندك لتطلب فيه معلومة.', { kind: 'stats' })
+      return say('اختر البلاغ، ثم اكتب المعلومة المطلوبة.', { choices: [...ticketChoices(mine), CANCEL], draft: { intent: 'info', step: 'ticket' } })
+    }
+    if (hit.assigned_technician !== actor.id) return say('طلب المعلومة للبلاغ المسند إليك.', { kind: 'stats' })
+    if (hit.status !== 'قيد المعالجة') return say(`البلاغ ${formatTicketNo(hit.ticket_number)} حالته «${hit.status}». الطلب يكون وهو قيد المعالجة.`, { kind: 'stats' })
+    return say(`اكتب المعلومة المطلوبة على ${formatTicketNo(hit.ticket_number)}. تظهر للموظف.`, { choices: [CANCEL], draft: { intent: 'info', step: 'body', ticketId: hit.id } })
+  }
+  if (/أرجع|ارجع|للطابور|قائمة الانتظار/.test(question)) {
+    const hit = namedTicket(desk, actor, question, ticketId, 'mine')
+    const mine = mineTickets(desk, actor)
+    if (!hit) {
+      if (!mine.length) return say('ما فيه بلاغ مسند لك لإرجاعه.', { kind: 'stats' })
+      return say('اختر البلاغ الذي يرجع لقائمة الانتظار.', { choices: [...ticketChoices(mine), CANCEL], draft: { intent: 'queue', step: 'ticket' } })
+    }
+    if (hit.assigned_technician !== actor.id) return say('الإرجاع للبلاغ المسند إليك.', { kind: 'stats' })
+    return say(`إرجاع ${formatTicketNo(hit.ticket_number)} إلى قائمة الانتظار.`, {
+      choices: [CANCEL],
+      confirm: { action: 'status', label: 'أرجع للطابور', payload: { ticketId: hit.id, status: 'مفتوحة' } }
+    })
+  }
+  if (/(?:خلي|خله|اجعل|حوّل|حول|غيّر|غير).{0,24}(?:عاجل|عادي|أهمية|اهمية)|أهمية البلاغ|اهمية البلاغ/.test(question)) {
+    const hit = namedTicket(desk, actor, question, ticketId, 'mine')
+    const mine = mineTickets(desk, actor)
+    if (!hit) {
+      if (!mine.length) return say('ما فيه بلاغ مسند لك لتغيير أهميته.', { kind: 'stats' })
+      return say('اختر البلاغ، ثم أهميته.', { choices: [...ticketChoices(mine), CANCEL], draft: { intent: 'priority', step: 'ticket' } })
+    }
+    if (hit.assigned_technician !== actor.id) return say('تغيير الأهمية للبلاغ المسند إليك.', { kind: 'stats' })
+    const wantsNormal = /عادي/.test(question) && !/عاجل/.test(question)
+    const wantsUrgent = /عاجل/.test(question) && !/عادي/.test(question)
+    if (wantsNormal) {
+      return say(`إرجاع ${formatTicketNo(hit.ticket_number)} إلى أهمية عادي.`, {
+        choices: [CANCEL],
+        confirm: { action: 'priority', label: 'اجعله عادياً', payload: { ticketId: hit.id, priority: 'عادي' } }
+      })
+    }
+    if (wantsUrgent) {
+      return say(`اكتب سبب جعل ${formatTicketNo(hit.ticket_number)} عاجلاً.`, { choices: [CANCEL], draft: { intent: 'priority', step: 'why', ticketId: hit.id } })
+    }
+    return say(`أهمية ${formatTicketNo(hit.ticket_number)} الآن «${hit.priority || 'عادي'}». اختر الجديدة.`, {
+      choices: [{ id: 'عاجل', label: 'عاجل' }, { id: 'عادي', label: 'عادي' }, CANCEL],
+      draft: { intent: 'priority', step: 'level', ticketId: hit.id }
+    })
+  }
+  if (/نوع العطل|غيّر العطل|غير العطل|العطل\s*(?:طابعة|شبكة|حساب|جهاز|برامج)/.test(question)) {
+    const hit = namedTicket(desk, actor, question, ticketId, 'mine')
+    const mine = mineTickets(desk, actor)
+    const namedFault = FAULT_TYPES.find((item) => item !== 'أخرى' && question.includes(item)) || ''
+    if (!hit) {
+      if (!mine.length) return say('ما فيه بلاغ مسند لك لتغيير نوع العطل.', { kind: 'stats' })
+      return say('اختر البلاغ، ثم نوع العطل.', { choices: [...ticketChoices(mine), CANCEL], draft: { intent: 'fault', step: 'ticket', ...(namedFault ? { fault: namedFault } : {}) } })
+    }
+    if (hit.assigned_technician !== actor.id) return say('تغيير نوع العطل للبلاغ المسند إليك.', { kind: 'stats' })
+    if (namedFault) {
+      return say(`نوع عطل ${formatTicketNo(hit.ticket_number)} يصير «${namedFault}».`, {
+        choices: [CANCEL],
+        confirm: { action: 'fault', label: 'احفظ نوع العطل', payload: { ticketId: hit.id, fault: namedFault } }
+      })
+    }
+    return say(`نوع عطل ${formatTicketNo(hit.ticket_number)} الآن «${hit.fault_type || 'أخرى'}». اختر النوع.`, {
+      choices: [...FAULT_TYPES.map((item) => ({ id: item, label: item })), CANCEL],
+      draft: { intent: 'fault', step: 'type', ticketId: hit.id }
+    })
+  }
+  if (/رداً للموظف|رد على الموظف|أرسل رد|ارسل رد|رد عليه|قل له|بلغه|بلّغه/.test(question)) {
+    const hit = namedTicket(desk, actor, question, ticketId, 'mine')
+    const mine = mineTickets(desk, actor)
+    if (!hit) {
+      if (!mine.length) return say('ما فيه بلاغ مسند لك للرد عليه.', { kind: 'stats' })
+      return say('اختر البلاغ، ثم اكتب الرد.', { choices: [...ticketChoices(mine), CANCEL], draft: { intent: 'reply', step: 'ticket' } })
+    }
+    if (hit.assigned_technician !== actor.id) return say('الرد للبلاغ المسند إليك.', { kind: 'stats' })
+    return say(`اكتب الرد على ${formatTicketNo(hit.ticket_number)}. يراه الموظف.`, { choices: [CANCEL], draft: { intent: 'reply', step: 'body', ticketId: hit.id } })
+  }
   if (/ملاحظة/.test(question)) {
-    const number = question.match(/(\d{3,})/)
     const body = question.split(/ملاحظة/).slice(1).join(' ').replace(/^[\s:]+|داخلية/g, ' ').trim()
-    const hit = number ? ticketByNumber(desk, number[1]) : null
+    const hit = namedTicket(desk, actor, question, ticketId, 'mine')
     if (!hit) {
       const mine = desk.rows.filter((row) => row.assigned_technician === actor.id && isActive(row.status))
       if (!mine.length) return say('ما فيه بلاغ مسند لك لتكتب عليه ملاحظة.', { kind: 'stats' })
@@ -428,14 +573,14 @@ function technicianDesk(desk: Desk, actor: Actor, question: string): DeskReply |
     if (!hit) return say('اكتب رقم البلاغ مع كلمة لخص أو تاريخ.', { kind: 'stats' })
     return say(`الخلاصة: ${lineOf(hit, actor.id, desk.names)}${hit.resolution ? `\nالحل المسجل: ${hit.resolution.slice(0, 180)}` : ''}`, { kind: 'stats' })
   }
-  if (/أنجز|انجز|إنجاز|انجاز|أغلق|اغلق/.test(question)) {
-    const number = question.match(/(\d{3,})/)
-    const hit = number ? ticketByNumber(desk, number[1]) : null
+  if (/أنجز|انجز|إنجاز|انجاز|أغلق|اغلق|اقفل|سكّر|سكر|خلّصت|خلصت|تم الحل|انحل/.test(question)) {
+    const hit = namedTicket(desk, actor, question, ticketId, 'mine')
     if (!hit) {
-      const mine = desk.rows.filter((row) => row.assigned_technician === actor.id && isActive(row.status))
+      const mine = mineTickets(desk, actor)
       if (!mine.length) return say('ما فيه بلاغ مسند لك لإنجازه.', { kind: 'stats' })
       return say('اختر البلاغ الذي تريد إنجازه.', { choices: [...ticketChoices(mine), CANCEL], draft: { intent: 'close', step: 'ticket' } })
     }
+    if (hit.assigned_technician !== actor.id) return say('الإنجاز للبلاغ المسند إليك.', { kind: 'stats' })
     return closeOffer(hit)
   }
   return null
@@ -737,14 +882,115 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply {
     if (text.length < 2) return say('اكتب اسم القسم.', { choices: [CANCEL], draft })
     return say(`سيُضاف القسم «${text.trim()}».`, { choices: [CANCEL], confirm: { action: 'add_department', label: 'أضف القسم', payload: { name: text.trim() } }, draft: null })
   }
-  if (draft.intent === 'close' && draft.step === 'ticket' && choice) {
-    const hit = desk.rows.find((row) => row.id === choice)
-    if (!hit) return say('البلاغ غير موجود.', { draft: null })
+  if (draft.intent === 'close' && draft.step === 'ticket') {
+    const hit = namedTicket(desk, actor, text, choice || input.ticketId || '', 'mine')
+    if (!hit) return say('اختر البلاغ من القائمة، أو اكتب رقمه.', { choices: [...ticketChoices(mineTickets(desk, actor)), CANCEL], draft })
+    if (hit.assigned_technician !== actor.id) return say('الإنجاز للبلاغ المسند إليك.', { draft: null })
     return closeOffer(hit)
   }
-  if (draft.intent === 'note' && draft.step === 'ticket' && choice) {
-    const hit = desk.rows.find((row) => row.id === choice)
-    if (!hit) return say('البلاغ غير موجود.', { draft: null })
+  if (draft.intent === 'claim' && draft.step === 'ticket') {
+    const hit = namedTicket(desk, actor, text, choice || input.ticketId || '', 'queue')
+    if (!hit) return say('اختر بلاغاً مفتوحاً من القائمة، أو اكتب رقمه.', { choices: [...ticketChoices(queueTickets(desk)), CANCEL], draft })
+    if (hit.assigned_technician || hit.status !== 'مفتوحة') return say('هذا البلاغ لا يُستلم الآن.', { draft: null })
+    return say(`استلام ${formatTicketNo(hit.ticket_number)}.`, { choices: [CANCEL], confirm: { action: 'claim', label: 'استلم البلاغ', payload: { ticketId: hit.id } }, draft: null })
+  }
+  if (draft.intent === 'info' && draft.step === 'ticket') {
+    const hit = namedTicket(desk, actor, text, choice || input.ticketId || '', 'mine')
+    if (!hit) return say('اختر البلاغ من القائمة، أو اكتب رقمه.', { choices: [...ticketChoices(mineTickets(desk, actor)), CANCEL], draft })
+    return say(`اكتب المعلومة المطلوبة على ${formatTicketNo(hit.ticket_number)}.`, { choices: [CANCEL], draft: { intent: 'info', step: 'body', ticketId: hit.id } })
+  }
+  if (draft.intent === 'info' && draft.step === 'body') {
+    if (text.length < 2) return say('اكتب المعلومة المطلوبة.', { choices: [CANCEL], draft })
+    return say('تأكيد إرسال المعلومة وجعل البلاغ بانتظار الموظف.', {
+      choices: [CANCEL],
+      confirm: { action: 'status', label: 'اطلب المعلومة', payload: { ticketId: draft.ticketId, status: 'بانتظار الموظف', body: text.slice(0, 400) } },
+      draft: null
+    })
+  }
+  if (draft.intent === 'queue' && draft.step === 'ticket') {
+    const hit = namedTicket(desk, actor, text, choice || input.ticketId || '', 'mine')
+    if (!hit) return say('اختر البلاغ من القائمة، أو اكتب رقمه.', { choices: [...ticketChoices(mineTickets(desk, actor)), CANCEL], draft })
+    return say(`إرجاع ${formatTicketNo(hit.ticket_number)} إلى قائمة الانتظار.`, {
+      choices: [CANCEL],
+      confirm: { action: 'status', label: 'أرجع للطابور', payload: { ticketId: hit.id, status: 'مفتوحة' } },
+      draft: null
+    })
+  }
+  if (draft.intent === 'resume' && draft.step === 'ticket') {
+    const hit = namedTicket(desk, actor, text, choice || input.ticketId || '', 'mine')
+    if (!hit) return say('اختر البلاغ من القائمة، أو اكتب رقمه.', { choices: [...ticketChoices(mineTickets(desk, actor)), CANCEL], draft })
+    return say(`إرجاع ${formatTicketNo(hit.ticket_number)} إلى قيد المعالجة.`, {
+      choices: [CANCEL],
+      confirm: { action: 'status', label: 'أرجعه للمعالجة', payload: { ticketId: hit.id, status: 'قيد المعالجة' } },
+      draft: null
+    })
+  }
+  if (draft.intent === 'priority' && draft.step === 'ticket') {
+    const hit = namedTicket(desk, actor, text, choice || input.ticketId || '', 'mine')
+    if (!hit) return say('اختر البلاغ من القائمة، أو اكتب رقمه.', { choices: [...ticketChoices(mineTickets(desk, actor)), CANCEL], draft })
+    if (draft.fault === 'عادي') {
+      return say(`إرجاع ${formatTicketNo(hit.ticket_number)} إلى أهمية عادي.`, { choices: [CANCEL], confirm: { action: 'priority', label: 'اجعله عادياً', payload: { ticketId: hit.id, priority: 'عادي' } }, draft: null })
+    }
+    return say(`أهمية ${formatTicketNo(hit.ticket_number)}. اختر الجديدة.`, {
+      choices: [{ id: 'عاجل', label: 'عاجل' }, { id: 'عادي', label: 'عادي' }, CANCEL],
+      draft: { intent: 'priority', step: 'level', ticketId: hit.id }
+    })
+  }
+  if (draft.intent === 'priority' && draft.step === 'level') {
+    if (choice === 'عادي') {
+      return say('تأكيد إرجاع الأهمية إلى عادي.', { choices: [CANCEL], confirm: { action: 'priority', label: 'اجعله عادياً', payload: { ticketId: draft.ticketId, priority: 'عادي' } }, draft: null })
+    }
+    if (choice !== 'عاجل') return say('اختر عاجل أو عادي.', { choices: [{ id: 'عاجل', label: 'عاجل' }, { id: 'عادي', label: 'عادي' }, CANCEL], draft })
+    return say('اكتب سبب الاستعجال.', { choices: [CANCEL], draft: { intent: 'priority', step: 'why', ticketId: draft.ticketId } })
+  }
+  if (draft.intent === 'priority' && draft.step === 'why') {
+    if (text.trim().length < 3) return say('سبب الاستعجال أقصر من المطلوب.', { choices: [CANCEL], draft })
+    return say('تأكيد جعل البلاغ عاجلاً.', {
+      choices: [CANCEL],
+      confirm: { action: 'priority', label: 'اجعله عاجلاً', payload: { ticketId: draft.ticketId, priority: 'عاجل', reason: text.trim().slice(0, 200) } },
+      draft: null
+    })
+  }
+  if (draft.intent === 'fault' && draft.step === 'ticket') {
+    const hit = namedTicket(desk, actor, text, choice || input.ticketId || '', 'mine')
+    if (!hit) return say('اختر البلاغ من القائمة، أو اكتب رقمه.', { choices: [...ticketChoices(mineTickets(desk, actor)), CANCEL], draft })
+    if (draft.fault && (FAULT_TYPES as readonly string[]).includes(draft.fault)) {
+      return say(`نوع عطل ${formatTicketNo(hit.ticket_number)} يصير «${draft.fault}».`, {
+        choices: [CANCEL],
+        confirm: { action: 'fault', label: 'احفظ نوع العطل', payload: { ticketId: hit.id, fault: draft.fault } },
+        draft: null
+      })
+    }
+    return say(`اختر نوع عطل ${formatTicketNo(hit.ticket_number)}.`, {
+      choices: [...FAULT_TYPES.map((item) => ({ id: item, label: item })), CANCEL],
+      draft: { intent: 'fault', step: 'type', ticketId: hit.id }
+    })
+  }
+  if (draft.intent === 'fault' && draft.step === 'type') {
+    const fault = (FAULT_TYPES as readonly string[]).includes(choice) ? choice : FAULT_TYPES.find((item) => item === text.trim()) || ''
+    if (!fault) return say('اختر نوع العطل من القائمة.', { choices: [...FAULT_TYPES.map((item) => ({ id: item, label: item })), CANCEL], draft })
+    return say(`تأكيد نوع العطل «${fault}».`, {
+      choices: [CANCEL],
+      confirm: { action: 'fault', label: 'احفظ نوع العطل', payload: { ticketId: draft.ticketId, fault } },
+      draft: null
+    })
+  }
+  if (draft.intent === 'reply' && draft.step === 'ticket') {
+    const hit = namedTicket(desk, actor, text, choice || input.ticketId || '', 'mine')
+    if (!hit) return say('اختر البلاغ من القائمة، أو اكتب رقمه.', { choices: [...ticketChoices(mineTickets(desk, actor)), CANCEL], draft })
+    return say(`اكتب الرد على ${formatTicketNo(hit.ticket_number)}.`, { choices: [CANCEL], draft: { intent: 'reply', step: 'body', ticketId: hit.id } })
+  }
+  if (draft.intent === 'reply' && draft.step === 'body') {
+    if (text.length < 2) return say('اكتب الرد.', { choices: [CANCEL], draft })
+    return say('تأكيد إرسال الرد للموظف.', {
+      choices: [CANCEL],
+      confirm: { action: 'reply', label: 'أرسل الرد', payload: { ticketId: draft.ticketId, body: text.slice(0, 400) } },
+      draft: null
+    })
+  }
+  if (draft.intent === 'note' && draft.step === 'ticket') {
+    const hit = namedTicket(desk, actor, text, choice || input.ticketId || '', 'mine')
+    if (!hit) return say('اختر البلاغ من القائمة، أو اكتب رقمه.', { choices: [...ticketChoices(mineTickets(desk, actor)), CANCEL], draft })
     return say(`اكتب الملاحظة الداخلية على ${formatTicketNo(hit.ticket_number)}.`, { choices: [CANCEL], draft: { intent: 'note', step: 'body', ticketId: hit.id } })
   }
   if (draft.intent === 'note' && draft.step === 'body') {
@@ -780,7 +1026,7 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply {
     if (text.length < 3) return say('الحل أقصر من المطلوب. اكتب ماذا تم إصلاحه.', { draft })
     return say('تأكيد جعل البلاغ منجزاً بهذا الحل.', { confirm: { action: 'close', label: 'اجعله منجزاً', payload: { ticketId: draft.ticketId, resolution: text.slice(0, 500), fault: draft.fault || '' } }, draft: null })
   }
-  if (draft.intent !== 'create_user') return say('الأمر انقطع. ابدأ من جديد.', { draft: null })
+  if (draft.intent !== 'create_user') return say('ما اكتمل الأمر. اختر زراً من القائمة، أو اكتب رقم البلاغ.', { choices: [CANCEL], draft })
   const afterIdentity = () => {
     if (draft.role === 'technician') {
       draft.department = TECH_DEPARTMENT
@@ -988,6 +1234,44 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     if (call.error) return say(call.error.message || 'تعذر حفظ التقييم.')
     return say(`تم حفظ تقييمك (${rating}/5).`)
   }
+  if (action === 'claim' || action === 'status' || action === 'reply') {
+    const client = asUser(request)
+    const name = desk.names.get(actor.id) || 'فني الدعم'
+    if (action === 'claim') {
+      const call = await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'claim', payload: { via: 'sanad' } })
+      if (call.error) return say(call.error.message || 'تعذّر استلام البلاغ.')
+      await tagRecentTicketEvents(payload.ticketId)
+      return say('تم استلام البلاغ وصار قيد المعالجة.')
+    }
+    if (action === 'reply') {
+      const inserted = await client.from('ticket_replies').insert({ ticket_id: payload.ticketId, sender_name: name, message: payload.body })
+      if (inserted.error) return say('تعذّر إرسال الرد.')
+      return say('أُرسل الرد ويظهر للموظف.')
+    }
+    const call = await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'status', payload: { status: payload.status, via: 'sanad' } })
+    if (call.error) return say(call.error.message || 'تعذّر تحديث البلاغ.')
+    if (payload.body) {
+      await client.from('ticket_replies').insert({ ticket_id: payload.ticketId, sender_name: name, message: payload.body })
+    }
+    await tagRecentTicketEvents(payload.ticketId)
+    if (payload.status === 'مفتوحة') return say('رجع البلاغ إلى قائمة الانتظار.')
+    if (payload.status === 'بانتظار الموظف') return say('البلاغ بانتظار الموظف، ورسالتك ظاهرة له.')
+    if (payload.status === 'قيد المعالجة') return say('رجع البلاغ إلى قيد المعالجة.')
+    return say('تم تحديث حالة البلاغ.')
+  }
+  if (action === 'priority' || action === 'fault') {
+    const client = asUser(request)
+    if (action === 'priority') {
+      const call = await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'priority', payload: { priority: payload.priority, reason: payload.reason || '', via: 'sanad' } })
+      if (call.error) return say(call.error.message || 'تعذّر تغيير الأهمية.')
+      await tagRecentTicketEvents(payload.ticketId)
+      return say(payload.priority === 'عاجل' ? 'صار البلاغ عاجلاً.' : 'رجعت أهمية البلاغ إلى عادي.')
+    }
+    const call = await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'fault', payload: { fault_type: payload.fault, via: 'sanad' } })
+    if (call.error) return say(call.error.message || 'تعذّر تغيير نوع العطل.')
+    await tagRecentTicketEvents(payload.ticketId)
+    return say(`نوع العطل صار «${payload.fault}».`)
+  }
   if (action === 'assign' || action === 'close' || action === 'note') {
     const client = asUser(request)
     if (action === 'close' && payload.fault) {
@@ -1075,7 +1359,7 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
     : role === 'department_head'
       ? headDesk(desk, actor, question) || employeeDesk(desk, actor, question)
       : isTechnicianRole(role)
-        ? technicianDesk(desk, actor, question)
+        ? technicianDesk(desk, actor, question, input.ticketId || '')
         : employeeDesk(desk, actor, question)
   if (specific) return { type: 'reply', reply: specific }
   if (toolAction(question)) {

@@ -22,7 +22,7 @@ type Reply = {
   draft?: Record<string, string> | null
   followups?: Followup[]
 }
-type Status = { configured: boolean; enabled: boolean } | null
+type Status = { configured: boolean; enabled: boolean; signedIn: boolean } | null
 type Mode = 'employee' | 'technician' | 'admin'
 type Persona = 'user' | 'department_head' | 'technician' | 'admin'
 
@@ -51,12 +51,20 @@ const MENUS: Record<Persona, Chip[]> = {
     { group: 'بلاغات', need: 'settings', label: 'للأسئلة الشائعة', question: 'أضف الحل للأسئلة الشائعة' }
   ],
   technician: [
-    { group: 'بلاغات', label: 'من أين أبدأ', question: 'أبدأ بأي بلاغ' },
-    { group: 'بلاغات', label: 'البلاغات المفتوحة', question: 'كم بلاغ مفتوح' },
-    { group: 'بلاغات', label: 'المتأخرة', question: 'البلاغات المتأخرة' },
-    { group: 'بلاغات', label: 'تسليم الوردية', question: 'تسليم الوردية' },
-    { group: 'بلاغات', label: 'إنجاز بلاغ', question: 'إنجاز بلاغ' },
-    { group: 'بلاغات', label: 'ملاحظة داخلية', question: 'ملاحظة داخلية' }
+    { group: 'الطابور', label: 'من أين أبدأ', question: 'أبدأ بأي بلاغ' },
+    { group: 'الطابور', label: 'بلاغاتي', question: 'بلاغاتي المسندة' },
+    { group: 'الطابور', label: 'بانتظار الاستلام', question: 'البلاغات بانتظار الاستلام' },
+    { group: 'الطابور', label: 'المتأخرة', question: 'البلاغات المتأخرة' },
+    { group: 'الطابور', label: 'تسليم الوردية', question: 'تسليم الوردية' },
+    { group: 'على البلاغ', label: 'استلام', question: 'استلم البلاغ' },
+    { group: 'على البلاغ', label: 'طلب معلومة', question: 'اطلب معلومة من الموظف' },
+    { group: 'على البلاغ', label: 'إعادة للمعالجة', question: 'أعد البلاغ للمعالجة' },
+    { group: 'على البلاغ', label: 'إنجاز', question: 'إنجاز البلاغ' },
+    { group: 'على البلاغ', label: 'إرجاع للطابور', question: 'أرجع البلاغ للطابور' },
+    { group: 'على البلاغ', label: 'رد على الموظف', question: 'أرسل رداً للموظف' },
+    { group: 'على البلاغ', label: 'ملاحظة داخلية', question: 'ملاحظة داخلية' },
+    { group: 'على البلاغ', label: 'الأهمية', question: 'غيّر أهمية البلاغ' },
+    { group: 'على البلاغ', label: 'نوع العطل', question: 'غيّر نوع العطل' }
   ],
   department_head: [
     { group: 'بلاغات', label: 'تعطل القسم', question: 'تعطل القسم' },
@@ -78,7 +86,7 @@ const MENUS: Record<Persona, Chip[]> = {
 
 const INTRO: Record<Persona, string> = {
   admin: 'ينفّذ حسب صلاحيتك: الحسابات والبلاغات، أو اكتب طلبك.',
-  technician: 'استلم، أنجز، أو اسأل عن الطابور.',
+  technician: 'اكتب طلبك بلغتك. ينفّذ ما تسمح به صلاحية الفني، ويطلب تأكيدك قبل أي تغيير.',
   department_head: 'تابع قسمك: التعطل، المتابعة، والتقييم.',
   user: 'صف العطل، أو تابع بلاغاتك.'
 }
@@ -91,6 +99,7 @@ const STEP_HINT: Record<string, string> = {
   password: 'كلمة المرور الجديدة',
   resolution: 'اكتب ماذا تم إصلاحه',
   body: 'نص الملاحظة الداخلية',
+  why: 'سبب جعله عاجلاً',
   deptname: 'اسم القسم الجديد',
   reason: 'سبب التقييم'
 }
@@ -206,12 +215,16 @@ export function AiAssistant({
         if (retryToken) loaded = await load(retryToken)
       }
       if (!alive) return
-      const result = loaded.result
-      if (result && typeof result.configured === 'boolean') {
-        setStatus({ configured: result.configured, enabled: result.enabled !== false })
+      if (loaded.response.status === 401) {
+        setStatus({ configured: false, enabled: false, signedIn: false })
         return
       }
-      setStatus({ configured: true, enabled: true })
+      const result = loaded.result
+      if (result && typeof result.configured === 'boolean') {
+        setStatus({ configured: result.configured, enabled: result.enabled !== false, signedIn: true })
+        return
+      }
+      setStatus({ configured: true, enabled: true, signedIn: true })
     })()
     return () => { alive = false }
   }, [supabase])
@@ -224,10 +237,15 @@ export function AiAssistant({
     setError('')
     setSolved(false)
     setFiledNo('')
-    const { data } = await supabase.auth.getSession()
-    const response = await fetch('/api/assistant', {
+    const sessionToken = async () => {
+      const current = await supabase.auth.getSession()
+      if (current.data.session?.access_token) return current.data.session.access_token
+      const refreshed = await supabase.auth.refreshSession()
+      return refreshed.data.session?.access_token || ''
+    }
+    const post = (access: string) => fetch('/api/assistant', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token || ''}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${access}` },
       body: JSON.stringify({
         question: text || 'تأكيد',
         audience: mode === 'technician' ? 'technician' : 'employee',
@@ -238,6 +256,19 @@ export function AiAssistant({
         image: image ? { mediaType: image.mediaType, data: image.data } : null
       })
     })
+    let access = await sessionToken()
+    let response = await post(access)
+    if (response.status === 401) {
+      const refreshed = await supabase.auth.refreshSession()
+      access = refreshed.data.session?.access_token || ''
+      if (access) response = await post(access)
+    }
+    if (response.status === 401) {
+      setLoading(false)
+      setStatus({ configured: false, enabled: false, signedIn: false })
+      setError('')
+      return
+    }
     const result = await response.json().catch(() => ({ error: 'تعذّر الوصول إلى المساعد الذكي.' }))
     setLoading(false)
     if (!response.ok) { setError(result.error || 'تعذّر الوصول إلى المساعد الذكي.'); return }
@@ -302,6 +333,13 @@ export function AiAssistant({
   }
 
   if (!status) return null
+  if (!status.signedIn) {
+    return (
+      <section className={`ai-gemini ${compact ? 'ai-gemini-compact' : ''}`}>
+        <p className="ai-box-error">يلزم تسجيل الدخول.</p>
+      </section>
+    )
+  }
   if (status.configured && !status.enabled && mode !== 'admin') return null
   const ready = status.enabled || mode === 'admin'
   const helpReply = reply?.kind === 'help'
@@ -311,7 +349,11 @@ export function AiAssistant({
   const groups = [...new Set(prompts.map((chip) => chip.group))]
   const intro = INTRO[persona]
   const step = draft?.step || ''
-  const placeholder = compact ? 'اسأل عن هذا البلاغ' : (STEP_HINT[step] || 'اكتب سؤالك هنا')
+  const placeholder = step === 'body' && draft?.intent === 'reply'
+    ? 'نص الرد للموظف'
+    : step === 'body' && draft?.intent === 'info'
+      ? 'المعلومة المطلوبة من الموظف'
+      : (STEP_HINT[step] || (compact ? 'اكتب ماذا تريد على هذا البلاغ' : 'اكتب طلبك بلغتك'))
   const secretStep = step === 'password'
   const choices = reply?.choices || []
   const listed = choices.filter((choice) => choice.id !== 'cancel')
@@ -319,6 +361,7 @@ export function AiAssistant({
   const usePicker = listed.length > 8
   const picked = listed.filter((choice) => choice.label.includes(pickQuery.trim()))
   const guiding = Boolean(draft || choices.length || reply?.confirm)
+  const shownGroups = compact ? groups.filter((group) => group === 'على البلاغ') : groups
   const canSend = STEP_HINT[step] ? question.trim().length >= 1 : question.trim().length >= 5 || Boolean(image)
 
   return (
@@ -390,6 +433,9 @@ export function AiAssistant({
           )}
           {(choices.length || reply.confirm || reply.followups?.length) ? (
             <div className="ai-box-actions">
+              {reply.confirm && (
+                <button type="button" className="ai-primary" disabled={loading} onClick={() => void send({ question: 'تأكيد', confirm: reply.confirm })}>{reply.confirm.label}</button>
+              )}
               {usePicker ? (
                 <div className="ai-picker">
                   <input
@@ -409,9 +455,6 @@ export function AiAssistant({
               ))}
               {cancelChoice && (
                 <button type="button" className="ai-ghost" disabled={loading} onClick={() => void send({ question: cancelChoice.label, choice: cancelChoice.id })}>{cancelChoice.label}</button>
-              )}
-              {reply.confirm && (
-                <button type="button" className="ai-primary" disabled={loading} onClick={() => void send({ question: 'تأكيد', confirm: reply.confirm })}>{reply.confirm.label}</button>
               )}
               {reply.followups?.map((item) => (
                 <button key={item.ticketId} type="button" className="ai-primary" disabled={loading} onClick={async () => {
@@ -442,9 +485,9 @@ export function AiAssistant({
         </div>
       )}
 
-      {!compact && !guiding && groups.map((group) => (
+      {!guiding && shownGroups.map((group) => (
         <div key={group} className="ai-gemini-group">
-          {reply && group === groups[0] && <p className="ai-gemini-again">خدمة أخرى</p>}
+          {reply && group === shownGroups[0] && <p className="ai-gemini-again">خدمة أخرى</p>}
           <p className="ai-gemini-group-label">{group}</p>
           <div className="ai-gemini-prompts">
             {prompts.filter((prompt) => prompt.group === group).map((prompt) => (
