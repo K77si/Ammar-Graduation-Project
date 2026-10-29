@@ -13,6 +13,9 @@
   --field: #f8fafc;
   --field-border: #cbd5e1;
   --shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --danger-text: #b91c1c;
 }
 
 .dark {
@@ -26,6 +29,9 @@
   --field: #1a1d2d;
   --field-border: #2a2e43;
   --shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+  --danger-bg: #3f1d24;
+  --danger-border: #7f1d1d;
+  --danger-text: #fecaca;
   color-scheme: dark;
 }
 

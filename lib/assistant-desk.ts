@@ -90,6 +90,7 @@ const ROLE_CHOICES: DeskChoice[] = [
   { id: 'department_head', label: 'رئيس قسم' }
 ]
 const CANCEL: DeskChoice = { id: 'cancel', label: 'إلغاء' }
+const STAR_CHOICES: DeskChoice[] = [1, 2, 3, 4, 5].map((star) => ({ id: String(star), label: `${star} من 5` }))
 
 function say(answer: string, extra: Partial<DeskReply> = {}): DeskReply {
   return { answer, kind: 'action', steps: [], ...extra }
@@ -368,9 +369,10 @@ function employeeDesk(desk: Desk, actor: Actor, question: string): DeskReply | n
       followups: [{ kind: 'reopen', ticketId: closed.id, label: `أعد فتح ${formatTicketNo(closed.ticket_number)}` }]
     })
   }
-  if (/تقييم|انحلت|تحلت/.test(question)) {
+  if (/تقييم|انحلت|تحلت/.test(question) && !/ضعيف|منخفض|سيئ/.test(question)) {
     const done = desk.rows.filter((row) => row.user_id === actor.id && (row.status === 'منجزة' || row.status === 'مغلقة') && !row.rating)
-    return say(done.length ? `قيّم البلاغ من شاشته بعد التأكد أن المشكلة انحلت:\n${done.slice(0, 5).map((row) => lineOf(row, actor.id, desk.names)).join('\n')}` : 'ما فيه بلاغ منجز بانتظار تقييمك.', { kind: 'stats' })
+    if (!done.length) return say('ما فيه بلاغ منجز بانتظار تقييمك.', { kind: 'stats' })
+    return say('اختر البلاغ، ثم عدد النجوم، ثم اكتب سبب التقييم.', { choices: [...ticketChoices(done), CANCEL], draft: { intent: 'rate', step: 'ticket' } })
   }
   return null
 }
@@ -752,6 +754,28 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply {
   if (draft.intent === 'close' && draft.step === 'fault' && choice) {
     return say('اكتب نص الحل في الرسالة التالية.', { draft: { ...draft, step: 'resolution', fault: choice } })
   }
+  if (draft.intent === 'rate' && draft.step === 'ticket' && choice) {
+    const hit = desk.rows.find((row) => row.id === choice)
+    if (!hit || hit.user_id !== actor.id) return say('هذا البلاغ ليس لك.', { draft: null })
+    if (hit.status !== 'منجزة' && hit.status !== 'مغلقة') return say('التقييم يتاح بعد إنجاز البلاغ أو إغلاقه.', { draft: null })
+    if (hit.rating) return say('هذا البلاغ مُقيَّم من قبل.', { draft: null })
+    return say(`كم تقيّم ${formatTicketNo(hit.ticket_number)}؟`, {
+      choices: [...STAR_CHOICES, CANCEL],
+      draft: { intent: 'rate', step: 'stars', ticketId: hit.id }
+    })
+  }
+  if (draft.intent === 'rate' && draft.step === 'stars' && choice) {
+    if (!STAR_CHOICES.some((item) => item.id === choice)) return say('اختر التقييم من 1 إلى 5.', { choices: [...STAR_CHOICES, CANCEL], draft })
+    return say('اكتب سبب التقييم في الرسالة التالية.', { choices: [CANCEL], draft: { intent: 'rate', step: 'reason', ticketId: draft.ticketId, rating: choice } })
+  }
+  if (draft.intent === 'rate' && draft.step === 'reason') {
+    if (text.trim().length < 2) return say('اكتب سبب التقييم.', { choices: [CANCEL], draft })
+    return say(`تأكيد تقييم البلاغ بـ ${draft.rating} من 5.`, {
+      choices: [CANCEL],
+      confirm: { action: 'rate', label: 'احفظ التقييم', payload: { ticketId: draft.ticketId, rating: draft.rating, reason: text.trim().slice(0, 300) } },
+      draft: null
+    })
+  }
   if (draft.intent === 'close' && draft.step === 'resolution') {
     if (text.length < 3) return say('الحل أقصر من المطلوب. اكتب ماذا تم إصلاحه.', { draft })
     return say('تأكيد جعل البلاغ منجزاً بهذا الحل.', { confirm: { action: 'close', label: 'اجعله منجزاً', payload: { ticketId: draft.ticketId, resolution: text.slice(0, 500), fault: draft.fault || '' } }, draft: null })
@@ -953,6 +977,16 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     await db.from('profiles').update({ password: null, temp_password: null, must_change_password: true }).eq('id', person.id)
     await writeAudit(actor.id, 'إعادة تعيين كلمة المرور', person.full_name || 'مستخدم', '', { source: 'سند', targetId: person.id })
     return say(`تم تعيين كلمة مرور جديدة لـ ${person.full_name}. سيُطلب منه تغييرها عند الدخول.`)
+  }
+  if (action === 'rate') {
+    const rating = Number(payload.rating)
+    const reason = (payload.reason || '').trim()
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) return say('التقييم يجب أن يكون بين 1 و 5.')
+    if (reason.length < 2) return say('اكتب سبب التقييم.')
+    const client = asUser(request)
+    const call = await client.rpc('rate_ticket', { ticket_id: payload.ticketId, new_rating: rating, reason })
+    if (call.error) return say(call.error.message || 'تعذر حفظ التقييم.')
+    return say(`تم حفظ تقييمك (${rating}/5).`)
   }
   if (action === 'assign' || action === 'close' || action === 'note') {
     const client = asUser(request)

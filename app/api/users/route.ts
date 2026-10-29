@@ -8,7 +8,8 @@ const ROLES = new Set(['admin', 'user', 'manager', 'technician', 'department_hea
 export async function POST(request: Request) {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return Response.json({ error: 'مفتاح الخدمة غير مضبوط على الخادم.' }, { status: 500 })
   const actor = await getActor(request)
-  if (!actor || !canManage(actor, 'users')) return Response.json({ error: 'هذا الإجراء متاح لمدير يملك صلاحية المستخدمين.' }, { status: 403 })
+  if (!actor) return Response.json({ error: 'يلزم تسجيل الدخول.' }, { status: 401 })
+  if (!canManage(actor, 'users')) return Response.json({ error: 'هذا الإجراء متاح لمدير يملك صلاحية المستخدمين.' }, { status: 403 })
 
   const body = await request.json().catch(() => null) as {
     fullName?: string
@@ -215,7 +216,8 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return Response.json({ error: 'مفتاح الخدمة غير مضبوط على الخادم.' }, { status: 500 })
   const actor = await getActor(request)
-  if (!actor || !canManage(actor, 'delete_users')) return Response.json({ error: 'ليست لديك صلاحية حذف الحسابات.' }, { status: 403 })
+  if (!actor) return Response.json({ error: 'يلزم تسجيل الدخول.' }, { status: 401 })
+  if (!canManage(actor, 'delete_users')) return Response.json({ error: 'ليست لديك صلاحية حذف الحسابات.' }, { status: 403 })
 
   const body = await request.json().catch(() => null) as { userId?: string } | null
   const userId = body?.userId || ''

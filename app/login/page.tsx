@@ -163,9 +163,9 @@ export default function LoginPage() {
 
         {errorMsg && (
           <div style={{
-            background: '#fef2f2',
-            border: '1px solid #fecaca',
-            color: '#b91c1c',
+            background: 'var(--danger-bg)',
+            border: '1px solid var(--danger-border)',
+            color: 'var(--danger-text)',
             padding: '10px 14px',
             borderRadius: '12px',
             fontSize: '13px',

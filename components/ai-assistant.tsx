@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ArrowUp, Loader2, Plus } from 'lucide-react'
 import { FAULT_TYPES, ticketAction } from '@/lib/workflow'
@@ -27,6 +27,11 @@ type Mode = 'employee' | 'technician' | 'admin'
 type Persona = 'user' | 'department_head' | 'technician' | 'admin'
 
 type Chip = { label: string; question: string; group: string; need?: string }
+type Turn = { q: string; a: string }
+
+function threadKey(userId: string, mode: string) {
+  return `sanad-thread:${userId}:${mode}`
+}
 
 const MENUS: Record<Persona, Chip[]> = {
   admin: [
@@ -86,7 +91,8 @@ const STEP_HINT: Record<string, string> = {
   password: 'كلمة المرور الجديدة',
   resolution: 'اكتب ماذا تم إصلاحه',
   body: 'نص الملاحظة الداخلية',
-  deptname: 'اسم القسم الجديد'
+  deptname: 'اسم القسم الجديد',
+  reason: 'سبب التقييم'
 }
 
 export function AiAssistant({
@@ -122,8 +128,51 @@ export function AiAssistant({
   const [draft, setDraft] = useState<Record<string, string> | null>(null)
   const [image, setImage] = useState<{ mediaType: string; data: string; name: string } | null>(null)
   const [pickQuery, setPickQuery] = useState('')
-  const [thread, setThread] = useState<{ q: string; a: string }[]>([])
+  const [thread, setThread] = useState<Turn[]>([])
   const [lastQuestion, setLastQuestion] = useState('')
+  const restored = useRef(false)
+
+  useEffect(() => {
+    if (compact) {
+      restored.current = true
+      return
+    }
+    let alive = true
+    supabase.auth.getSession().then(({ data }) => {
+      if (!alive) return
+      const userId = data.session?.user.id
+      if (userId) {
+        try {
+          const raw = localStorage.getItem(threadKey(userId, mode))
+          const saved = raw ? JSON.parse(raw) as { thread?: Turn[]; current?: Turn | null } : null
+          const turns = Array.isArray(saved?.thread)
+            ? saved.thread.filter((turn) => turn && typeof turn.q === 'string' && typeof turn.a === 'string').slice(-8)
+            : []
+          setThread(turns)
+          if (saved?.current?.q && saved?.current?.a) {
+            setLastQuestion(saved.current.q)
+            setReply({ answer: saved.current.a, steps: [], fault_type: '', urgent: false, needs_ticket: false, kind: 'stats' })
+          }
+        } catch {
+          localStorage.removeItem(threadKey(userId, mode))
+        }
+      }
+      restored.current = true
+    })
+    return () => { alive = false }
+  }, [supabase, mode, compact])
+
+  useEffect(() => {
+    if (compact || !restored.current) return
+    let alive = true
+    supabase.auth.getSession().then(({ data }) => {
+      const userId = data.session?.user.id
+      if (!alive || !userId) return
+      const current = lastQuestion && reply?.answer ? { q: lastQuestion, a: reply.answer } : null
+      localStorage.setItem(threadKey(userId, mode), JSON.stringify({ thread, current }))
+    })
+    return () => { alive = false }
+  }, [thread, lastQuestion, reply, supabase, mode, compact])
 
   useEffect(() => {
     let alive = true

@@ -84,9 +84,7 @@ supabase/migrations  Database schema, security policies, and triggers (SQL)
 
 ## Testing
 
-- 113 automated checks covering the ticket workflow, permissions, and privacy rules against a live database.
-- Security tests for owner protection, login lockout, and data access.
-- End-to-end browser checks on desktop and mobile, light and dark modes, plus checks on the deployed site.
+Ticket transitions, permissions, and privacy rules are enforced in the database. This repository does not include a separate automated test suite. The deployed site is checked in the browser: login, the four portals, and Sanad actions.
 
 ## Author
 
