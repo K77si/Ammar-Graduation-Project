@@ -2,13 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity, ArrowDownLeft, Bell, Bot, Check, CircleHelp, Hash, Info, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Search, Sun, Ticket, Wrench, X, MessageSquare, BarChart3, Send
+  Activity, ArrowDownLeft, Bell, Bot, Check, CircleHelp, Info, LayoutDashboard, LogOut, Menu, Moon, RefreshCw, Sun, Ticket, Wrench, X, MessageSquare, BarChart3, Send
 } from 'lucide-react'
 import { SanadMark } from '@/components/sanad-mark'
 import { TicketFiles } from '@/components/ticket-files'
 import { TicketHistory, TicketTools } from '@/components/ticket-tools'
 import { StatusBadge, StatusLegend } from '@/components/status-badge'
 import { AiAssistant } from '@/components/ai-assistant'
+import { AccountLog } from '@/components/account-log'
+import { TicketSearch } from '@/components/ticket-search'
 import { TicketConversation } from '@/components/ticket-conversation'
 import { statusLabel, asRating, departmentLabel, formatTicketNo, formatTicketWhen, greetingStyle, normalizeDigits, ticketNoStyle, ticketNumberMatches } from '@/lib/display'
 import { useGreeting } from '@/lib/use-greeting'
@@ -17,6 +19,7 @@ import { rememberNotices, unseenNotices } from '@/lib/seen-notices'
 import { rankSimilar } from '@/lib/similar'
 import { DesktopNotifyStatus, notifyDesktop, useNotifyPermission } from '@/lib/desktop-notify'
 import { loadTicketThread, readTicketMeta, sendTicketReply, subscribeTicketChanges } from '@/lib/ticket-thread'
+import { loadTicketEvents } from '@/lib/ticket-events'
 import { browserSupabase } from '@/lib/supabase-browser'
 import { useTheme } from '@/lib/theme'
 
@@ -99,7 +102,7 @@ export default function TechnicianPage() {
   const [showHelpModal, setShowHelpModal] = useState(false)
   const [availability, setAvailability] = useState<(typeof AVAILABILITY)[number]>('متاح')
   const [templates, setTemplates] = useState<Array<{ id: string; body: string }>>([])
-  const [events, setEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; created_at: string }>>([])
+  const [events, setEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; source?: string | null; created_at: string }>>([])
   const [notes, setNotes] = useState<Array<{ id: string; author_name: string; body: string; created_at: string }>>([])
 
 
@@ -229,11 +232,11 @@ export default function TechnicianPage() {
     setSelectedTicket(ticket)
     setActionMsg('')
     const [history, privateNotes, thread] = await Promise.all([
-      supabase.from('ticket_events').select('id, actor_name, from_status, to_status, note, created_at').eq('ticket_id', ticket.id).order('created_at', { ascending: true }),
+      loadTicketEvents(supabase, ticket.id),
       supabase.from('ticket_notes').select('id, author_name, body, created_at').eq('ticket_id', ticket.id).order('created_at', { ascending: true }),
       loadTicketThread(supabase, ticket.id)
     ])
-    setEvents(history.data || [])
+    setEvents(history)
     setNotes(privateNotes.data || [])
     setTicketReplies(thread.messages)
     if (thread.error) setActionMsg(thread.error)
@@ -430,7 +433,12 @@ export default function TechnicianPage() {
           </div>
 
           {activeTab === 'اسأل سند' && (
-            <AiAssistant supabase={supabase} mode="technician" onTicketsChanged={() => { void fetchQueue(true) }} />
+            <>
+              <div className="ask-sanad">
+                <AiAssistant supabase={supabase} mode="technician" onTicketsChanged={() => { void fetchQueue(true) }} />
+              </div>
+              {userId && <AccountLog supabase={supabase} userId={userId} />}
+            </>
           )}
 
           {activeTab === 'نظرة عامة' && (
@@ -496,16 +504,7 @@ export default function TechnicianPage() {
                   <PanelHeader icon={<Wrench />} title="بلاغاتي" action="" />
                   <p>المُسندة إليك ولم تنتهِ.</p>
                 </div>
-                <div className="table-actions">
-                  <div className="search-box ticket-no-search">
-                    <Hash />
-                    <input value={ticketNoQuery} onChange={(event) => setTicketNoQuery(event.target.value)} inputMode="numeric" placeholder="رقم البلاغ" aria-label="بحث برقم البلاغ" />
-                  </div>
-                  <div className="search-box">
-                    <Search />
-                    <input aria-label="بحث في بلاغاتي" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث ضمن بلاغاتي" />
-                  </div>
-                </div>
+                <TicketSearch number={ticketNoQuery} onNumber={setTicketNoQuery} text={query} onText={setQuery} textLabel="بحث في بلاغاتي" textPlaceholder="ابحث ضمن بلاغاتي" />
               </div>
               <TicketTable
                 loading={loading}
@@ -526,16 +525,7 @@ export default function TechnicianPage() {
                 <div>
                   <PanelHeader icon={<Ticket />} title="البلاغات" action="" />
                 </div>
-                <div className="table-actions">
-                  <div className="search-box ticket-no-search">
-                    <Hash />
-                    <input value={ticketNoQuery} onChange={(event) => setTicketNoQuery(event.target.value)} inputMode="numeric" placeholder="رقم البلاغ" aria-label="بحث برقم البلاغ" />
-                  </div>
-                  <div className="search-box">
-                    <Search />
-                    <input aria-label="بحث في البلاغات" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث في البلاغات..." />
-                  </div>
-                </div>
+                <TicketSearch number={ticketNoQuery} onNumber={setTicketNoQuery} text={query} onText={setQuery} textLabel="بحث في البلاغات" textPlaceholder="ابحث في البلاغات..." />
               </div>
               <div className="tabs">
                 {(['الكل', 'مفتوحة', 'قيد المعالجة', 'بانتظار الموظف', 'المنجزة والمغلقة'] as const).map((item) => (
@@ -618,7 +608,7 @@ export default function TechnicianPage() {
               </details>
             )}
             {selectedTicket.status !== 'مغلقة' && selectedTicket.status !== 'ملغاة' && (
-              <AiAssistant key={selectedTicket.id} supabase={supabase} mode="technician" compact seed={`${selectedTicket.title}${selectedTicket.fault_type ? ` (نوع العطل: ${selectedTicket.fault_type})` : ''}`} onTicketsChanged={() => { void fetchQueue(true) }} />
+              <AiAssistant key={selectedTicket.id} supabase={supabase} mode="technician" compact ticketId={selectedTicket.id} seed={`${selectedTicket.title}${selectedTicket.fault_type ? ` (نوع العطل: ${selectedTicket.fault_type})` : ''}`} onTicketsChanged={() => { void fetchQueue(true); void openTicket(selectedTicket) }} />
             )}
             <div>
               <h4 style={{ fontSize: '14px', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} /> المحادثة</h4>

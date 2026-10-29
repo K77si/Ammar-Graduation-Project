@@ -110,7 +110,8 @@ export async function POST(request: Request) {
     actor.id,
     role === 'admin' ? 'إنشاء مدير نظام' : 'إنشاء حساب',
     fullName,
-    role === 'admin' ? `الصلاحيات: ${permissionText}` : role
+    role === 'admin' ? `الصلاحيات: ${permissionText}` : role,
+    { source: 'يدوي', targetId: created.data.user.id }
   )
   return Response.json({ id: created.data.user.id, employeeNumber, approved, auditWarning })
 }
@@ -165,7 +166,7 @@ export async function PATCH(request: Request) {
       const saved = await admin.from('profiles').update(update).eq('id', userId)
       if (saved.error) return Response.json({ error: saved.error.message }, { status: 400 })
       const permissionText = ADMIN_PERMISSIONS.filter((item) => permissions.includes(item.key)).map((item) => item.label).join('، ')
-      const auditWarning = await writeAudit(actor.id, 'إنشاء مدير نظام', body.fullName?.trim() || 'مدير نظام', `الصلاحيات: ${permissionText}`)
+      const auditWarning = await writeAudit(actor.id, 'إنشاء مدير نظام', body.fullName?.trim() || 'مدير نظام', `الصلاحيات: ${permissionText}`, { source: 'يدوي', targetId: userId })
       promoted = true
       if (!password) return Response.json({ ok: true, auditWarning })
     }
@@ -200,13 +201,15 @@ export async function PATCH(request: Request) {
     must_change_password: ownPassword ? false : true
   }).eq('id', userId)
   if (error) return Response.json({ error: error.message }, { status: 400 })
-  if (!ownPassword) {
-    const { data: target } = await admin.from('profiles').select('full_name').eq('id', userId).maybeSingle()
-    const auditWarning = await writeAudit(actor.id, 'إعادة تعيين كلمة المرور', target?.full_name || 'مستخدم', '')
-    return Response.json({ ok: true, auditWarning })
-  }
-
-  return Response.json({ ok: true })
+  const { data: target } = await admin.from('profiles').select('full_name').eq('id', userId).maybeSingle()
+  const auditWarning = await writeAudit(
+    actor.id,
+    ownPassword ? 'تغيير كلمة المرور' : 'إعادة تعيين كلمة المرور',
+    target?.full_name || 'مستخدم',
+    '',
+    { source: 'يدوي', targetId: userId }
+  )
+  return Response.json({ ok: true, auditWarning })
 }
 
 export async function DELETE(request: Request) {
@@ -230,6 +233,6 @@ export async function DELETE(request: Request) {
   }
   const { error } = await admin.from('profiles').delete().eq('id', userId)
   if (error) return Response.json({ error: 'حُذف حساب الدخول وتعذّر حذف ملف المستخدم. أعد المحاولة.' }, { status: 400 })
-  const auditWarning = await writeAudit(actor.id, 'حذف حساب', target?.full_name || 'مستخدم', target?.role || '')
+  const auditWarning = await writeAudit(actor.id, 'حذف حساب', target?.full_name || 'مستخدم', target?.role || '', { source: 'يدوي', targetId: userId })
   return Response.json({ ok: true, auditWarning })
 }

@@ -29,6 +29,7 @@ export function AiAssistant({
   mode = 'employee',
   seed = '',
   compact = false,
+  ticketId = '',
   onOpenTicket,
   onTicketsChanged
 }: {
@@ -36,6 +37,7 @@ export function AiAssistant({
   mode?: Mode
   seed?: string
   compact?: boolean
+  ticketId?: string
   onOpenTicket?: (question: string, fault: string) => void
   onTicketsChanged?: () => void
 }) {
@@ -111,6 +113,7 @@ export function AiAssistant({
         choice: payload.choice,
         draft,
         confirm: payload.confirm || null,
+        ticketId,
         image: image ? { mediaType: image.mediaType, data: image.data } : null
       })
     })
@@ -154,7 +157,7 @@ export function AiAssistant({
       device_number: '',
       is_private: false,
       is_outage: false
-    }]).select('ticket_number')
+    }]).select('id, ticket_number')
     setFiling(false)
     if (insertError || !data?.[0]) {
       const raw = insertError?.message || ''
@@ -162,6 +165,14 @@ export function AiAssistant({
       return
     }
     setFiledNo(formatTicketNo(data[0].ticket_number))
+    const sessionToken = session.session?.access_token || ''
+    if (data[0].id) {
+      await fetch('/api/tickets/opened', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` },
+        body: JSON.stringify({ ticketId: data[0].id })
+      })
+    }
     onTicketsChanged?.()
   }
 
@@ -233,7 +244,7 @@ export function AiAssistant({
               )}
               {reply.followups?.map((item) => (
                 <button key={item.ticketId} type="button" className="ai-primary" disabled={loading} onClick={async () => {
-                  const result = await ticketAction(supabase, item.ticketId, 'reopen', { reason: 'عادت المشكلة' })
+                  const result = await ticketAction(supabase, item.ticketId, 'reopen', { reason: 'عادت المشكلة', via: 'sanad' })
                   if (result.error) setError(result.error)
                   else { setReply({ ...reply, answer: `${reply.answer}\nتمت إعادة فتح البلاغ.` , followups: [] }); onTicketsChanged?.() }
                 }}>{item.label}</button>

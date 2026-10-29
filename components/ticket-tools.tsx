@@ -2,10 +2,11 @@
 
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { statusLabel } from '@/lib/display'
+import { OriginBadge, originOf, stripOrigin } from '@/components/origin-badge'
 import { AVAILABILITY, FAULT_TYPES, canReopen, isDelayed, type WorkflowTicket } from '@/lib/workflow'
 
 type TechnicianOption = { id: string; name: string; availability?: string | null; openCount: number }
-type EventRow = { id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; created_at: string }
+type EventRow = { id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; source?: string | null; created_at: string }
 type NoteRow = { id: string; author_name: string; body: string; created_at: string }
 
 type ToolsProps = {
@@ -182,8 +183,9 @@ export function TicketHistory({ events }: { events: EventRow[] }) {
         {rows.map((event) => (
           <p key={event.id} style={{ margin: '2px 0', fontSize: '12px', color: '#64748b', lineHeight: 1.8 }}>
             <b>{event.actor_name}</b>
+            <OriginBadge source={originOf(event.source, event.note)} />
             {event.from_status !== event.to_status ? `: من «${statusLabel(event.from_status)}» إلى «${statusLabel(event.to_status)}»` : ''}
-            {event.note ? ` · ${event.note}` : ''}
+            {stripOrigin(event.note) ? ` · ${stripOrigin(event.note)}` : ''}
             {event.extra ? ` · ${event.extra}` : ''}
             <span style={{ marginInlineStart: '6px', opacity: 0.7 }}>{new Date(event.created_at).toLocaleString('ar-SA-u-nu-latn', { dateStyle: 'short', timeStyle: 'short' })}</span>
           </p>

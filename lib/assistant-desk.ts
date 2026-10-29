@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { canManage, isOwner, serviceClient, type Actor } from '@/lib/server-auth'
 import { writeAudit } from '@/lib/audit'
+import { logSanadQuestion, tagRecentTicketEvents } from '@/lib/sanad-log'
 import { FAULT_TYPES, isActive } from '@/lib/workflow'
 import { similarity, normalizeArabic } from '@/lib/similar'
 import { readTicketMeta } from '@/lib/ticket-thread'
@@ -32,6 +33,7 @@ export type DeskInput = {
   choice?: string
   draft?: Record<string, string> | null
   confirm?: { action: string; payload: Record<string, string> } | null
+  ticketId?: string
 }
 export type DeskOutcome =
   | { type: 'reply'; reply: DeskReply }
@@ -498,6 +500,14 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
       draft: { intent: 'create_user', step: 'role', fullName }
     })
   }
+  if (/(?:غيّ?ر|بدّ?ل|بدل|إعادة تعيين|اعادة تعيين|أعد تعيين|اعد تعيين).{0,40}(?:كلمة\s*(?:السر|المرور)|باسورد)|(?:كلمة\s*(?:السر|المرور)|باسورد).{0,40}(?:جديد|غيّ?ر|بدّ?ل)/.test(question)) {
+    if (!canManage(actor, 'reset_password')) return say('تغيير كلمة المرور من صلاحية إعادة التعيين.')
+    const name = question.replace(/كلمة\s*(?:السر|المرور)|باسورد|جديد|إعادة|اعادة|تعيين|غيّ?ر|بدّ?ل|بدل|حساب|للمستخدم|للموظف/g, ' ')
+    const found = findPeople(desk.people, name)
+    if (!found.length) return say('اكتب: غيّر كلمة مرور ثم اسم الحساب.', { kind: 'action' })
+    if (found.length > 1) return say('أكثر من حساب. اختر واحداً.', { choices: personChoices(found), draft: { intent: 'reset_password', step: 'pick' } })
+    return passwordPrompt(found[0])
+  }
   if (/احذف|عطّل حساب|عطل حساب|أوقف حساب|اوقف حساب/.test(question)) {
     const disabling = /عط|اوقف|أوقف/.test(question)
     if (!canManage(actor, disabling ? 'approvals' : 'delete_users')) return say(disabling ? 'تعطيل الحساب من صلاحية الاعتمادات.' : 'حذف الحساب من صلاحية حذف الحسابات.')
@@ -550,6 +560,14 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
   return null
 }
 
+function passwordPrompt(person: Person): DeskReply {
+  if (isOwner(person)) return say('لا يمكن تغيير كلمة مرور المالك من هنا.')
+  return say(`اكتب كلمة المرور الجديدة لـ ${person.full_name} وحدها في الرسالة التالية. لن أعيدها.`, {
+    choices: [CANCEL],
+    draft: { intent: 'reset_password', step: 'password', userId: person.id }
+  })
+}
+
 function confirmPerson(actor: Actor, desk: Desk, person: Person, action: 'delete' | 'disable'): DeskReply {
   if (person.id === actor.id) return say('لا يمكن تنفيذ ذلك على حسابك الحالي.')
   if (isOwner(person)) return say('لا يمكن حذف حساب المالك أو تعطيله.')
@@ -569,6 +587,21 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply {
     const person = desk.people.find((item) => item.id === choice)
     if (!person) return say('الحساب غير موجود.', { draft: null })
     return say(`اعتماد ${person.full_name}.`, { confirm: { action: 'approve', label: 'اعتمد الحساب', payload: { userId: person.id } }, draft: null })
+  }
+  if (draft.intent === 'reset_password' && draft.step === 'pick') {
+    const person = choice ? desk.people.find((item) => item.id === choice) : null
+    if (!person) return say('اختر الحساب من الأزرار، أو ألغِ الأمر.', { choices: [CANCEL], draft })
+    return passwordPrompt(person)
+  }
+  if (draft.intent === 'reset_password' && draft.step === 'password') {
+    const weak = passwordError(text, desk.settings.strict_auth)
+    if (weak) return say(weak, { choices: [CANCEL], draft })
+    const person = desk.people.find((item) => item.id === draft.userId)
+    return say(`تأكيد تعيين كلمة مرور جديدة لـ ${person?.full_name || 'الحساب'}. لن تُعرض الكلمة.`, {
+      choices: [CANCEL],
+      confirm: { action: 'reset_password', label: 'عيّن كلمة المرور', payload: { userId: draft.userId, password: text } },
+      draft: null
+    })
   }
   if ((draft.intent === 'delete' || draft.intent === 'disable') && choice) {
     const person = desk.people.find((item) => item.id === choice)
@@ -662,7 +695,7 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     const enabled = payload.enabled === 'true'
     const saved = await db.from('system_settings').update({ ai_enabled: enabled }).eq('id', 'main_settings')
     if (saved.error) return say('تعذّر تغيير حالة المساعد.')
-    await writeAudit(actor.id, enabled ? 'تشغيل المساعد' : 'إيقاف المساعد', 'المساعد الذكي', '')
+    await writeAudit(actor.id, enabled ? 'تشغيل المساعد' : 'إيقاف المساعد', 'المساعد الذكي', '', { source: 'سند' })
     return say(enabled ? 'تم تشغيل المساعد.' : 'تم إيقاف المساعد.')
   }
   if (action === 'add_department') {
@@ -671,7 +704,7 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     if (desk.departments.some((item) => departmentLabel(item) === name)) return say('القسم موجود.')
     const saved = await db.from('system_settings').update({ departments: [...desk.departments, name] }).eq('id', 'main_settings')
     if (saved.error) return say('تعذّر إضافة القسم.')
-    await writeAudit(actor.id, 'إضافة قسم', name, '')
+    await writeAudit(actor.id, 'إضافة قسم', name, '', { source: 'سند' })
     return say(`تمت إضافة قسم ${name}. حدّث الصفحة لرؤيته في الإعدادات.`)
   }
   if (action === 'rename_department') {
@@ -682,7 +715,7 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     const saved = await db.from('system_settings').update({ departments: next }).eq('id', 'main_settings')
     if (saved.error) return say('تعذّر تعديل القسم.')
     await db.from('profiles').update({ department: to }).eq('department', from)
-    await writeAudit(actor.id, 'تعديل قسم', to, from)
+    await writeAudit(actor.id, 'تعديل قسم', to, from, { source: 'سند' })
     return say(`أصبح القسم ${to}.`)
   }
   if (action === 'approve' || action === 'disable') {
@@ -692,7 +725,7 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     if (person.id === actor.id || isOwner(person)) return say('لا يمكن تغيير حالة هذا الحساب.')
     const saved = await db.from('profiles').update({ is_approved: action === 'approve' }).eq('id', person.id)
     if (saved.error) return say('تعذّر تحديث الحساب.')
-    await writeAudit(actor.id, action === 'approve' ? 'اعتماد حساب' : 'إيقاف حساب', person.full_name || 'مستخدم', '')
+    await writeAudit(actor.id, action === 'approve' ? 'اعتماد حساب' : 'إيقاف حساب', person.full_name || 'مستخدم', '', { source: 'سند', targetId: person.id })
     return say(action === 'approve' ? `تم اعتماد ${person.full_name}.` : `تم إيقاف ${person.full_name}.`)
   }
   if (action === 'delete') {
@@ -706,7 +739,7 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     if (removed.error && !/not found/i.test(removed.error.message)) return say('تعذّر حذف حساب الدخول.')
     const deleted = await db.from('profiles').delete().eq('id', person.id)
     if (deleted.error) return say('حُذف الدخول وتعذّر حذف الملف. أعد المحاولة.')
-    await writeAudit(actor.id, 'حذف حساب', person.full_name || 'مستخدم', person.role || '')
+    await writeAudit(actor.id, 'حذف حساب', person.full_name || 'مستخدم', person.role || '', { source: 'سند', targetId: person.id })
     return say(`تم حذف ${person.full_name}.`)
   }
   if (action === 'update_user') {
@@ -719,7 +752,7 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     if ('error' in checked) return say(checked.error)
     const saved = await db.from('profiles').update({ role: nextRole, department: checked.department }).eq('id', person.id)
     if (saved.error) return say('تعذّر تعديل الحساب.')
-    await writeAudit(actor.id, 'تعديل حساب', person.full_name || 'مستخدم', `${roleLabel(nextRole)} · ${checked.department}`)
+    await writeAudit(actor.id, 'تعديل حساب', person.full_name || 'مستخدم', `${roleLabel(nextRole)} · ${checked.department}`, { source: 'سند', targetId: person.id })
     return say(`تم تحديث ${person.full_name}: ${roleLabel(nextRole)}، ${checked.department}.`)
   }
   if (action === 'create_user') {
@@ -763,20 +796,33 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
       await db.auth.admin.deleteUser(created.data.user.id)
       return say('تعذر حفظ ملف المستخدم.')
     }
-    await writeAudit(actor.id, 'إنشاء حساب', fullName, roleLabel(role))
+    await writeAudit(actor.id, 'إنشاء حساب', fullName, roleLabel(role), { source: 'سند', targetId: created.data.user.id })
     return say(`تم إنشاء حساب ${fullName}. ${approved ? 'الحساب معتمد.' : 'الحساب بانتظار الاعتماد.'} حدّث صفحة المستخدمين لرؤيته.`)
+  }
+  if (action === 'reset_password') {
+    if (!canManage(actor, 'reset_password')) return say('ليست لديك صلاحية تغيير كلمة المرور.')
+    const person = desk.people.find((item) => item.id === payload.userId)
+    if (!person || isOwner(person)) return say('لا يمكن تغيير كلمة مرور هذا الحساب من هنا.')
+    const weak = passwordError(payload.password || '', desk.settings.strict_auth)
+    if (weak) return say(weak)
+    const updated = await db.auth.admin.updateUserById(person.id, { password: payload.password })
+    if (updated.error) return say('تعذر تغيير كلمة المرور.')
+    await db.from('profiles').update({ password: null, temp_password: null, must_change_password: true }).eq('id', person.id)
+    await writeAudit(actor.id, 'إعادة تعيين كلمة المرور', person.full_name || 'مستخدم', '', { source: 'سند', targetId: person.id })
+    return say(`تم تعيين كلمة مرور جديدة لـ ${person.full_name}. سيُطلب منه تغييرها عند الدخول.`)
   }
   if (action === 'assign' || action === 'close' || action === 'note') {
     const client = asUser(request)
     if (action === 'close' && payload.fault) {
-      await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'fault', payload: { fault_type: payload.fault } })
+      await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'fault', payload: { fault_type: payload.fault, via: 'sanad' } })
     }
     const call = action === 'assign'
-      ? await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'assign', payload: { technician_id: payload.technicianId } })
+      ? await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'assign', payload: { technician_id: payload.technicianId, via: 'sanad' } })
       : action === 'note'
-        ? await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'note', payload: { body: payload.body } })
-        : await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'status', payload: { status: 'منجزة', resolution: payload.resolution } })
+        ? await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'note', payload: { body: payload.body, via: 'sanad' } })
+        : await client.rpc('ticket_action', { ticket: payload.ticketId, action: 'status', payload: { status: 'منجزة', resolution: payload.resolution, via: 'sanad' } })
     if (call.error) return say(call.error.message || 'تعذّر تنفيذ الإجراء على البلاغ.')
+    await tagRecentTicketEvents(payload.ticketId)
     if (action === 'close') return say('أصبح البلاغ منجزاً. إذا تكرر العطل قل: أضف الحل للأسئلة الشائعة من بلاغ رقمه.')
     if (action === 'note') return say('حُفظت الملاحظة الداخلية.')
     return say('تم إسناد البلاغ.')
@@ -786,19 +832,49 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     const { data: last } = await db.from('faq_items').select('sort_order').order('sort_order', { ascending: false }).limit(1).maybeSingle()
     const saved = await db.from('faq_items').insert({ title: payload.title.slice(0, 80), body: payload.body.slice(0, 500), sort_order: (last?.sort_order || 0) + 1 })
     if (saved.error) return say('تعذّر إضافة الحل إلى الأسئلة الشائعة.')
-    await writeAudit(actor.id, 'إضافة حل شائع', payload.title, '')
+    await writeAudit(actor.id, 'إضافة حل شائع', payload.title, '', { source: 'سند' })
     return say('أُضيف الحل إلى الأسئلة الشائعة.')
   }
   return say('هذا الإجراء غير معروف.')
 }
 
+async function traceQuestion(actor: Actor, request: Request, desk: Desk, input: DeskInput) {
+  if (input.confirm || input.draft?.intent || input.choice) return
+  const question = input.question.trim()
+  if (question.length < 5 || question === 'تأكيد') return
+  let ticketId = input.ticketId || ''
+  let status: string | null = null
+  const client = asUser(request)
+  if (ticketId) {
+    const { data } = await client.from('tickets').select('id, status').eq('id', ticketId).maybeSingle()
+    if (!data?.id) return
+    status = (data.status as string) || null
+  } else {
+    const number = question.match(/(\d{3,})/)
+    if (!number) return
+    const local = ticketByNumber(desk, number[1])
+    if (local) {
+      ticketId = local.id
+      status = local.status
+    } else {
+      const { data } = await client.from('tickets').select('id, status').eq('ticket_number', Number(number[1])).maybeSingle()
+      if (!data?.id) return
+      ticketId = data.id as string
+      status = (data.status as string) || null
+    }
+  }
+  await logSanadQuestion({ ticketId, actorName: desk.names.get(actor.id) || 'مستخدم', status, question })
+}
+
 export async function interpret(actor: Actor, request: Request, input: DeskInput): Promise<DeskOutcome> {
   const desk = await loadDesk(actor)
   const question = input.question.trim()
-  if (leaksSecret(question)) {
+  const typingSecret = (input.draft?.intent === 'create_user' || input.draft?.intent === 'reset_password') && input.draft.step === 'password'
+  if (!typingSecret && leaksSecret(question)) {
     return { type: 'reply', reply: say('لا ترسل كلمة المرور داخل الرسالة. احذفها، وتغييرها يكون من صفحة الدخول أو من مدير النظام.') }
   }
   if (input.choice === 'cancel') return { type: 'reply', reply: say('تم إلغاء الأمر.', { draft: null }) }
+  await traceQuestion(actor, request, desk, input)
   if (input.confirm?.action) {
     return { type: 'reply', reply: await execute(actor, request, desk, input.confirm.action, input.confirm.payload || {}) }
   }

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef } from 'react'
 import {
-  Activity, AlertTriangle, ArrowDownLeft, Bot, Check, ChevronDown, CircleHelp, FileKey2, Gauge, Hash, LayoutDashboard, LogOut, Menu, Moon, MoreHorizontal, Search, Settings2, Sun, Ticket, Trash2, Users, X, UserPlus, Info, Edit3, Lock, Send, Save, Bell, Lightbulb, Shield, Sliders, BarChart3, PieChart, RefreshCw, MessageSquare
+  Activity, AlertTriangle, ArrowDownLeft, Bot, Check, ChevronDown, CircleHelp, FileKey2, Gauge, LayoutDashboard, LogOut, Menu, Moon, MoreHorizontal, Search, Settings2, Sun, Ticket, Trash2, Users, X, UserPlus, Info, Edit3, Lock, Send, Save, Bell, Lightbulb, Shield, Sliders, BarChart3, PieChart, RefreshCw, MessageSquare
 } from 'lucide-react'
 import { AdminOwnerGate } from '@/components/admin-owner-gate'
 import { SanadMark } from '@/components/sanad-mark'
@@ -11,12 +11,16 @@ import { TicketHistory, TicketTools } from '@/components/ticket-tools'
 import { StatusBadge, StatusLegend } from '@/components/status-badge'
 import { TicketConversation } from '@/components/ticket-conversation'
 import { AiAssistant } from '@/components/ai-assistant'
+import { AccountLog } from '@/components/account-log'
+import { TicketSearch } from '@/components/ticket-search'
+import { OriginBadge, OriginFilter, originOf, stripOrigin } from '@/components/origin-badge'
 import { KnowledgeEditor } from '@/components/knowledge-editor'
 import { PerformancePanel } from '@/components/performance-panel'
 import { ADMIN_PERMISSIONS, hasAdminPermission, normalizeAdminPermissions, permissionSummary } from '@/lib/admin-access'
 import { DEPARTMENTS, statusLabel, TECH_DEPARTMENT, asRating, departmentLabel, formatTicketNo, formatTicketWhen, greetingStyle, isTechnicianRole, normalizeDigits, passwordError, roleLabel, storedDepartment, ticketNoStyle, ticketNumberMatches } from '@/lib/display'
 import { useGreeting } from '@/lib/use-greeting'
 import { loadTicketThread, readTicketMeta, sendTicketReply, subscribeTicketChanges, type ThreadMessage } from '@/lib/ticket-thread'
+import { loadTicketEvents } from '@/lib/ticket-events'
 import { closeStale, downloadText, isActive, isDelayed, monthKey, sortTickets, ticketAction, ticketsToCsv } from '@/lib/workflow'
 import { browserSupabase } from '@/lib/supabase-browser'
 import { useTheme } from '@/lib/theme'
@@ -91,7 +95,8 @@ export default function Page() {
 
   const [users, setUsers] = useState<UserProfile[]>([])
   const [tickets, setTickets] = useState<TicketData[]>([])
-  const [auditLogs, setAuditLogs] = useState<Array<{ id: string; actor_name: string; action: string; target_name: string | null; detail: string | null; created_at: string }>>([])
+  const [auditLogs, setAuditLogs] = useState<Array<{ id: string; actor_name: string; action: string; target_name: string | null; detail: string | null; source?: string | null; created_at: string }>>([])
+  const [auditSource, setAuditSource] = useState<'الكل' | 'يدوي' | 'سند'>('الكل')
   const [loading, setLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
@@ -141,7 +146,7 @@ export default function Page() {
   const [settingTab, setSettingTab] = useState('عام')
   const [departmentList, setDepartmentList] = useState<string[]>([...DEPARTMENTS])
   const [newDepartmentName, setNewDepartmentName] = useState('')
-  const [ticketEvents, setTicketEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; created_at: string }>>([])
+  const [ticketEvents, setTicketEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; source?: string | null; created_at: string }>>([])
   const [ticketNotes, setTicketNotes] = useState<Array<{ id: string; author_name: string; body: string; created_at: string }>>([])
   const [sysSettings, setSysSettings] = useState({
     ai_enabled: true,
@@ -151,6 +156,7 @@ export default function Page() {
     force_password_change: true
   })
   const [savingSettings, setSavingSettings] = useState(false)
+  const [adminId, setAdminId] = useState('')
   const [adminName, setAdminName] = useState('مدير النظام')
   const [adminNumber, setAdminNumber] = useState('')
   const greeting = useGreeting()
@@ -230,8 +236,11 @@ export default function Page() {
     const { data: eventRows } = await supabase.from('ticket_events').select('ticket_id, from_status, to_status, created_at').in('to_status', ['قيد المعالجة', 'مفتوحة'])
     if (eventRows) setStatusEvents(eventRows)
     const { data: settingsData } = await supabase.from('system_settings').select('*').eq('id', 'main_settings').maybeSingle()
-    const { data: auditData } = await supabase.from('admin_audit').select('id, actor_name, action, target_name, detail, created_at').order('created_at', { ascending: false }).limit(30)
-    if (auditData) setAuditLogs(auditData)
+    const auditRich = await supabase.from('admin_audit').select('id, actor_name, action, target_name, detail, source, created_at').order('created_at', { ascending: false }).limit(30)
+    const auditPlain = auditRich.error
+      ? await supabase.from('admin_audit').select('id, actor_name, action, target_name, detail, created_at').order('created_at', { ascending: false }).limit(30)
+      : auditRich
+    if (auditPlain.data) setAuditLogs(auditPlain.data)
     if (settingsData) {
       setSysSettings({
         ai_enabled: settingsData.ai_enabled ?? true,
@@ -256,6 +265,7 @@ export default function Page() {
         return
       }
       setCurrentEmail(session.user.email || '')
+      setAdminId(session.user.id)
       const { data: profile } = await supabase.from('profiles').select('role, full_name, employee_number, admin_permissions, must_change_password').eq('id', session.user.id).single()
       if (profile?.must_change_password) {
         window.location.href = '/login'
@@ -519,11 +529,11 @@ export default function Page() {
     setTicketActionMsg('')
     setTicketReplyError('')
     const [history, notes, thread] = await Promise.all([
-      supabase.from('ticket_events').select('id, actor_name, from_status, to_status, note, created_at').eq('ticket_id', ticket.id).order('created_at', { ascending: true }),
+      loadTicketEvents(supabase, ticket.id),
       supabase.from('ticket_notes').select('id, author_name, body, created_at').eq('ticket_id', ticket.id).order('created_at', { ascending: true }),
       loadTicketThread(supabase, ticket.id)
     ])
-    setTicketEvents(history.data || [])
+    setTicketEvents(history)
     setTicketNotes(notes.data || [])
     setTicketThread(thread.messages)
     if (thread.error) setTicketReplyError(thread.error)
@@ -717,7 +727,12 @@ export default function Page() {
 
           {/* ----- (نظرة عامة) ----- */}
           {activeTab === 'اسأل سند' && (
-            <AiAssistant supabase={supabase} mode="admin" onTicketsChanged={() => { void fetchAllData(true) }} />
+            <>
+              <div className="ask-sanad">
+                <AiAssistant supabase={supabase} mode="admin" onTicketsChanged={() => { void fetchAllData(true) }} />
+              </div>
+              {adminId && <AccountLog supabase={supabase} userId={adminId} />}
+            </>
           )}
 
           {activeTab === 'نظرة عامة' && allowed('overview') && (
@@ -822,10 +837,7 @@ export default function Page() {
                   )}
 
                   {settingTab === 'المساعد' && (
-                    <>
-                      <ToggleOption label="تشغيل المساعد الذكي" desc="يقترح حلولاً للموظفين والفنيين قبل فتح البلاغ." checked={sysSettings.ai_enabled} onChange={() => setSysSettings({...sysSettings, ai_enabled: !sysSettings.ai_enabled})} dark={dark} />
-                      <AiAssistant supabase={supabase} mode="admin" onTicketsChanged={() => { void fetchAllData(true) }} />
-                    </>
+                    <ToggleOption label="تشغيل المساعد الذكي" desc="يقترح حلولاً للموظفين والفنيين قبل فتح البلاغ. المحادثة نفسها من «اسأل سند»." checked={sysSettings.ai_enabled} onChange={() => setSysSettings({...sysSettings, ai_enabled: !sysSettings.ai_enabled})} dark={dark} />
                   )}
 
                   {settingTab === 'الحلول' && (
@@ -934,7 +946,8 @@ export default function Page() {
             {activeTab === 'المستخدمون' && allowed('users') && (
               <section className="panel" style={{ marginTop: '16px' }}>
                 <PanelHeader icon={<Shield />} title="سجل العمليات" action="" />
-                <p>إنشاء الحسابات وحذفها وتعديل الصلاحيات.</p>
+                <p>إنشاء الحسابات وحذفها وتعديل الصلاحيات. الطريقة تبيّن إن كان الإجراء يدوياً أو عن طريق سند.</p>
+                <OriginFilter value={auditSource} onChange={setAuditSource} />
                 {auditLogs.length === 0 ? (
                   <div style={{ padding: '12px 0', color: '#94a3b8', fontSize: '13px' }}>لا توجد عمليات مسجلة بعد.</div>
                 ) : (
@@ -946,16 +959,18 @@ export default function Page() {
                           <th>الحساب</th>
                           <th>بواسطة</th>
                           <th>التفاصيل</th>
+                          <th>الطريقة</th>
                           <th>الوقت</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {auditLogs.map((row) => (
+                        {auditLogs.filter((row) => auditSource === 'الكل' || originOf(row.source, row.detail) === auditSource).map((row) => (
                           <tr key={row.id}>
                             <td>{row.action}</td>
                             <td>{row.target_name || '—'}</td>
                             <td>{row.actor_name}</td>
-                            <td className="cell-wrap">{row.detail || '—'}</td>
+                            <td className="cell-wrap">{stripOrigin(row.detail) || '—'}</td>
+                            <td><OriginBadge source={originOf(row.source, row.detail)} /></td>
                             <td>{formatTicketWhen(row.created_at)}</td>
                           </tr>
                         ))}
@@ -974,16 +989,7 @@ export default function Page() {
                   <PanelHeader icon={<Ticket />} title="البلاغات" action="" />
                   <p>{ticketStatus === 'الكل' ? 'كل بلاغات الموظفين.' : `البلاغات المعروضة: ${ticketStatus}.`}</p>
                 </div>
-                <div className="table-actions">
-                  <div className="search-box ticket-no-search">
-                    <Hash />
-                    <input value={ticketNoQuery} onChange={(event) => setTicketNoQuery(event.target.value)} inputMode="numeric" placeholder="رقم البلاغ" aria-label="بحث برقم البلاغ" />
-                  </div>
-                  <div className="search-box">
-                    <Search />
-                    <input aria-label="بحث في البلاغات" value={ticketQuery} onChange={(event) => setTicketQuery(event.target.value)} placeholder="ابحث في البلاغات..." />
-                  </div>
-                </div>
+                <TicketSearch number={ticketNoQuery} onNumber={setTicketNoQuery} text={ticketQuery} onText={setTicketQuery} textLabel="بحث في البلاغات" textPlaceholder="ابحث في البلاغات..." />
               </div>
               <div className="tabs">
                 {(['الكل', 'مفتوحة', 'متأخرة', 'قيد المعالجة', 'بانتظار الموظف', 'المنجزة والمغلقة', 'ملغاة'] as const).map((item) => (

@@ -1358,14 +1358,143 @@ details.fold[open] > summary::after {
   flex-wrap: wrap;
 }
 
+.ask-sanad {
+  width: min(760px, 100%);
+  margin: 12px auto 0;
+}
+
+.ask-sanad .ai-gemini {
+  width: 100%;
+  margin: 0;
+}
+
+.portal-switch {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.portal-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.portal-switch button.active {
+  background: #8b5cf6;
+  border-color: #8b5cf6;
+  color: #fff;
+}
+
+.ticket-search {
+  width: 100%;
+}
+
+.ticket-search .search-box:not(.ticket-no-search) {
+  flex: 1;
+  min-width: 220px;
+}
+
+.origin-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: 6px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.origin-sanad {
+  background: rgba(139, 92, 246, 0.16);
+  color: #7c3aed;
+}
+
+.origin-manual {
+  background: var(--field);
+  color: var(--text-muted);
+}
+
+.origin-filter {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.origin-filter button {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.origin-filter button.active {
+  background: #8b5cf6;
+  border-color: #8b5cf6;
+  color: #fff;
+}
+
+.account-log {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 12px 14px;
+}
+
+.account-log summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.account-log p,
+.account-log-empty {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.account-log ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-log li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.account-log small {
+  color: var(--text-muted);
+}
+
 .search-box {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  background: var(--surface);
   border: 1px solid var(--border);
-  padding: 0.4rem 0.8rem;
-  border-radius: 10px;
-  font-size: 0.75rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
   min-width: 220px;
 }
 

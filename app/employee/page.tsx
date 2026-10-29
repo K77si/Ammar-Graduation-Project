@@ -1,17 +1,20 @@
 'use client'
 
 import { useEffect, useMemo, useState, useRef } from 'react'
-import { Ticket, PlusCircle, LogOut, Moon, Sun, Bell, X, MessageSquare, Star, Search, Hash } from 'lucide-react'
+import { Ticket, PlusCircle, LogOut, Moon, Sun, Bell, X, MessageSquare, Star, Bot } from 'lucide-react'
 import { SanadMark } from '@/components/sanad-mark'
 import { TicketFiles } from '@/components/ticket-files'
 import { TicketHistory, TicketTools } from '@/components/ticket-tools'
 import { StatusBadge } from '@/components/status-badge'
 import { TicketConversation } from '@/components/ticket-conversation'
 import { AiAssistant } from '@/components/ai-assistant'
+import { AccountLog } from '@/components/account-log'
+import { TicketSearch } from '@/components/ticket-search'
 import { departmentLabel, statusLabel, formatTicketNo, formatTicketWhen, greetingStyle, normalizeDigits, ticketNoStyle, ticketNumberMatches } from '@/lib/display'
 import { useGreeting } from '@/lib/use-greeting'
 import { rememberNotices, unseenNotices } from '@/lib/seen-notices'
 import { loadTicketThread, readTicketMeta, sendTicketReply, subscribeTicketChanges } from '@/lib/ticket-thread'
+import { loadTicketEvents } from '@/lib/ticket-events'
 import { rankSimilar } from '@/lib/similar'
 import { DesktopNotifyStatus, notifyDesktop, useNotifyPermission } from '@/lib/desktop-notify'
 import { useTheme } from '@/lib/theme'
@@ -76,6 +79,7 @@ export default function EmployeePage() {
   const [ticketQuery, setTicketQuery] = useState('')
   const [ticketNoQuery, setTicketNoQuery] = useState('')
   const [listFilter, setListFilter] = useState<'الكل' | 'لم تُغلق' | 'مغلقة'>('الكل')
+  const [portalView, setPortalView] = useState<'اسأل سند' | 'البلاغات'>('البلاغات')
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [showNotifMenu, setShowNotifMenu] = useState(false)
   
@@ -112,7 +116,7 @@ export default function EmployeePage() {
   const [deviceNumber, setDeviceNumber] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
   const [ratingReason, setRatingReason] = useState('')
-  const [events, setEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; created_at: string }>>([])
+  const [events, setEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; source?: string | null; created_at: string }>>([])
   const [actionMsg, setActionMsg] = useState('')
   const [actionBusy, setActionBusy] = useState(false)
 
@@ -326,14 +330,14 @@ export default function EmployeePage() {
     }
     const [{ data: fresh }, history, thread] = await Promise.all([
       supabase.from('tickets').select('*').eq('id', ticket.id).maybeSingle(),
-      supabase.from('ticket_events').select('id, actor_name, from_status, to_status, note, created_at').eq('ticket_id', ticket.id).order('created_at', { ascending: true }),
+      loadTicketEvents(supabase, ticket.id),
       loadTicketThread(supabase, ticket.id)
     ])
     const source = (fresh as TicketItem) || ticket
     const meta = readTicketMeta(source.title)
     const storedAssignee = (source as TicketItem & { assigned_technician?: string | null }).assigned_technician
     setSelectedTicket({ ...source, title: meta.problem, assigned_to: storedAssignee || source.assigned_to || meta.assigneeId, assigneeName: meta.assigneeName })
-    setEvents(history.data || [])
+    setEvents(history)
     setTicketReplies(thread.messages)
     if (thread.error) setReplyError(thread.error)
   }
@@ -528,8 +532,19 @@ export default function EmployeePage() {
 
       {/* المحتوى */}
       <div style={{ padding: '2rem 0', flex: 1, display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-        <AiAssistant supabase={supabase} onOpenTicket={(question, fault) => openNewTicket(false, question, fault)} onTicketsChanged={() => fetchEmployeeData(userId)} />
-
+        <div className="portal-switch">
+          <button type="button" className={portalView === 'اسأل سند' ? 'active' : ''} onClick={() => setPortalView('اسأل سند')}><Bot size={16} /> اسأل سند</button>
+          <button type="button" className={portalView === 'البلاغات' ? 'active' : ''} onClick={() => setPortalView('البلاغات')}><Ticket size={16} /> البلاغات</button>
+        </div>
+        {portalView === 'اسأل سند' ? (
+          <>
+            <div className="ask-sanad">
+              <AiAssistant supabase={supabase} mode="employee" onOpenTicket={(question, fault) => openNewTicket(false, question, fault)} onTicketsChanged={() => fetchEmployeeData(userId)} />
+            </div>
+            {userId && <AccountLog supabase={supabase} userId={userId} />}
+          </>
+        ) : (
+        <>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text)' }}>{isHead ? `بلاغات ${headDepartment}` : 'سجل بلاغاتي'}</h2>
@@ -591,16 +606,15 @@ export default function EmployeePage() {
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '180px', background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '12px', padding: '10px 14px' }}>
-            <Hash size={16} color="#8b5cf6" />
-            <input value={ticketNoQuery} onChange={(event) => setTicketNoQuery(event.target.value)} inputMode="numeric" placeholder="رقم البلاغ" aria-label="بحث برقم البلاغ" style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: 'var(--text)', fontSize: '15px', fontWeight: 800, direction: 'ltr', textAlign: 'left' }} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '220px', background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '12px', padding: '10px 14px' }}>
-            <Search size={16} color="#8b5cf6" />
-            <input aria-label="بحث في البلاغات" value={ticketQuery} onChange={(event) => setTicketQuery(event.target.value)} placeholder={isHead ? 'ابحث في بلاغات القسم: المشكلة، الموظف، الحالة، الفني...' : 'ابحث في بلاغاتك: المشكلة، الحالة، الفني...'} style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: 'var(--text)', fontSize: '14px' }} />
-          </div>
-        </div>
+        <TicketSearch
+          number={ticketNoQuery}
+          onNumber={setTicketNoQuery}
+          text={ticketQuery}
+          onText={setTicketQuery}
+          textLabel="بحث في البلاغات"
+          textPlaceholder={isHead ? 'ابحث في بلاغات القسم: المشكلة، الموظف، الحالة، الفني...' : 'ابحث في بلاغاتك: المشكلة، الحالة، الفني...'}
+        />
+        {userId && <AccountLog supabase={supabase} userId={userId} />}
 
         {/* الجدول */}
         <div id="employee-tickets" style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', overflowX: 'auto' }}>
@@ -645,6 +659,8 @@ export default function EmployeePage() {
             </table>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* نافذة تفاصيل التذكرة والمراسلة والتقييم */}

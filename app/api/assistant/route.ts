@@ -139,6 +139,7 @@ export async function POST(request: Request) {
     choice?: string
     draft?: Record<string, string> | null
     confirm?: { action: string; payload: Record<string, string> } | null
+    ticketId?: string
     image?: { mediaType?: string; data?: string } | null
   } | null
   const question = (body?.question || '').trim()
@@ -153,7 +154,7 @@ export async function POST(request: Request) {
   if (question.length > 600) return Response.json({ error: 'اختصر وصف المشكلة إلى 600 حرف أو أقل.' }, { status: 400 })
   if (!allowRequest(actor.id)) return Response.json({ error: 'وصلت إلى الحد المسموح من الأسئلة. حاول بعد عشر دقائق.' }, { status: 429 })
 
-  const outcome = await interpret(actor, request, { question, choice: body?.choice, draft: body?.draft, confirm: body?.confirm })
+  const outcome = await interpret(actor, request, { question, choice: body?.choice, draft: body?.draft, confirm: body?.confirm, ticketId: body?.ticketId || '' })
   if (outcome.type === 'reply') return pack(outcome.reply)
 
   const paths = await modelPaths(request)

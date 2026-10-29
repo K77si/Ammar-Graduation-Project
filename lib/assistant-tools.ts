@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { jsonSchema, tool, type JSONSchema7 } from 'ai'
 import { writeAudit } from '@/lib/audit'
+import { markTicketOpenedBySanad, tagRecentTicketEvents } from '@/lib/sanad-log'
 import {
   DEPARTMENTS,
   TECH_DEPARTMENT,
@@ -293,7 +294,7 @@ async function createEmployee(actor: Actor, raw: unknown): Promise<ToolOutput> {
     await db.auth.admin.deleteUser(created.data.user.id)
     return { ok: false, error: 'تعذر حفظ ملف المستخدم، ولم يُترك حساب دخول بلا ملف.' }
   }
-  await writeAudit(actor.id, 'إنشاء حساب', fullName, roleLabel(role))
+  await writeAudit(actor.id, 'إنشاء حساب', fullName, roleLabel(role), { source: 'سند', targetId: created.data.user.id })
   return { ok: true, full_name: fullName, email, role, department: checked.department, approved }
 }
 
@@ -391,7 +392,7 @@ async function updateEmployee(actor: Actor, raw: unknown): Promise<ToolOutput> {
   if (!Object.keys(patch).length) return { ok: false, error: 'لا توجد حقول للتحديث. يمكن تعديل الاسم أو البريد أو القسم أو الدور أو رقم الموظف.' }
   const saved = await serviceClient().from('profiles').update(patch).eq('id', person.id)
   if (saved.error) return { ok: false, error: 'تعذر تعديل الحساب.' }
-  await writeAudit(actor.id, 'تعديل حساب', patch.full_name || person.full_name || 'مستخدم', `${roleLabel(patch.role || person.role)} · ${patch.department || person.department || ''}`)
+  await writeAudit(actor.id, 'تعديل حساب', patch.full_name || person.full_name || 'مستخدم', `${roleLabel(patch.role || person.role)} · ${patch.department || person.department || ''}`, { source: 'سند', targetId: person.id })
   return { ok: true, user_id: person.id, updated: patch }
 }
 
@@ -454,6 +455,7 @@ async function createTicket(actor: Actor, request: Request, raw: unknown): Promi
     return { ok: false, error: /[\u0600-\u06FF]/.test(message) ? message : 'تعذر فتح البلاغ.' }
   }
   const row = inserted.data[0]
+  await markTicketOpenedBySanad(row.id as string, actor.id)
   return { ok: true, ticket_id: row.id, ticket_number: row.ticket_number, status: row.status }
 }
 
@@ -495,7 +497,7 @@ async function updateTicketStatus(actor: Actor, request: Request, raw: unknown):
   const client = userClient(request)
   let claimedSelf = false
   if (assignSelf || (tech && technicianRaw === actor.id)) {
-    const claimed = await client.rpc('ticket_action', { ticket, action: 'claim', payload: {} })
+    const claimed = await client.rpc('ticket_action', { ticket, action: 'claim', payload: { via: 'sanad' } })
     if (claimed.error && !status) return { ok: false, error: claimed.error.message }
     claimedSelf = !claimed.error
   } else if (technicianRaw) {
@@ -503,16 +505,17 @@ async function updateTicketStatus(actor: Actor, request: Request, raw: unknown):
     if (!ticketsAdmin(session.actor)) return { ok: false, error: TICKETS_DENIED }
     const resolved = await resolveTechnician(technicianRaw)
     if ('error' in resolved) return { ok: false, error: resolved.error, matches: resolved.matches }
-    const assigned = await client.rpc('ticket_action', { ticket, action: 'assign', payload: { technician_id: resolved.id } })
+    const assigned = await client.rpc('ticket_action', { ticket, action: 'assign', payload: { technician_id: resolved.id, via: 'sanad' } })
     if (assigned.error) return { ok: false, error: assigned.error.message }
   }
   if (status) {
     const payload: Record<string, string> = { status }
     const resolution = textField(input.resolution)
     if (resolution) payload.resolution = resolution
-    const changed = await client.rpc('ticket_action', { ticket, action: 'status', payload })
+    const changed = await client.rpc('ticket_action', { ticket, action: 'status', payload: { ...payload, via: 'sanad' } })
     if (changed.error) return { ok: false, error: changed.error.message }
   }
+  await tagRecentTicketEvents(ticket)
   return { ok: true, ticket_id: ticket, status: status || undefined, claimed_self: claimedSelf || undefined }
 }
 
