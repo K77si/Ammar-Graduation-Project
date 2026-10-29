@@ -15,10 +15,9 @@ import { useGreeting } from '@/lib/use-greeting'
 import { rememberNotices, unseenNotices } from '@/lib/seen-notices'
 import { loadTicketThread, readTicketMeta, sendTicketReply, subscribeTicketChanges } from '@/lib/ticket-thread'
 import { loadTicketEvents } from '@/lib/ticket-events'
-import { rankSimilar } from '@/lib/similar'
 import { DesktopNotifyStatus, notifyDesktop, useNotifyPermission } from '@/lib/desktop-notify'
 import { useTheme } from '@/lib/theme'
-import { FAULT_TYPES, closeStale, isActive, sortTickets, suggestFault, ticketAction } from '@/lib/workflow'
+import { FAULT_TYPES, closeStale, isActive, quickTips, sortTickets, suggestFault, ticketAction } from '@/lib/workflow'
 import { browserSupabase } from '@/lib/supabase-browser'
 
 const supabase = browserSupabase()
@@ -287,34 +286,38 @@ export default function EmployeePage() {
       is_outage: outageMode
     }]).select()
 
-    setSubmitting(false)
     if (error) {
+      setSubmitting(false)
       const raw = error.message || ''
       setErrorMsg(/[\u0600-\u06FF]/.test(raw) ? raw : 'تعذّر إرسال البلاغ. تأكد من الاتصال ثم أعد المحاولة.')
-    } else {
-      let attachmentNote = ''
-      if (data && data.length > 0 && ticketFiles.length > 0) {
-        const session = await supabase.auth.getSession()
-        const token = session.data.session?.access_token || ''
-        for (const file of ticketFiles.slice(0, 3)) {
-          const body = new FormData()
-          body.append('ticketId', data[0].id)
-          body.append('file', file)
-          const uploaded = await fetch('/api/tickets/attachments', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-            body
-          })
-          if (!uploaded.ok) attachmentNote = ' تعذّر رفع أحد المرفقات.'
+      return
+    }
+    let attachmentNote = ''
+    if (data && data.length > 0 && ticketFiles.length > 0) {
+      const session = await supabase.auth.getSession()
+      const token = session.data.session?.access_token || ''
+      for (const file of ticketFiles.slice(0, 3)) {
+        const body = new FormData()
+        body.append('ticketId', data[0].id)
+        body.append('file', file)
+        const uploaded = await fetch('/api/tickets/attachments', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body
+        })
+        if (!uploaded.ok) {
+          const result = await uploaded.json().catch(() => ({}))
+          attachmentNote = ` ${result.error || 'تعذّر رفع أحد المرفقات.'}`
         }
       }
-      resetNewTicket()
-      setShowNewModal(false)
-      fetchEmployeeData(userId)
-      if (data && data.length > 0) {
-        const kind = outageMode ? 'بلاغ تعطل القسم' : 'البلاغ'
-        setLiveBanner(`تم تسجيل ${kind} ${formatTicketNo(data[0].ticket_number)} وإحالته إلى الدعم التقني.${attachmentNote}`)
-      }
+    }
+    setSubmitting(false)
+    resetNewTicket()
+    setShowNewModal(false)
+    fetchEmployeeData(userId)
+    if (data && data.length > 0) {
+      const kind = outageMode ? 'بلاغ تعطل القسم' : 'البلاغ'
+      setLiveBanner(`تم تسجيل ${kind} ${formatTicketNo(data[0].ticket_number)} وإحالته إلى الدعم التقني.${attachmentNote}`)
     }
   }
 
@@ -468,8 +471,8 @@ export default function EmployeePage() {
     ]
   }, [tickets])
   const matchedFaqs = useMemo(() => (
-    outageMode || title.trim().length < 6 ? [] : rankSimilar(title, faqs, (item) => `${item.title} ${item.body}`, 2, 0.25)
-  ), [title, faqs, outageMode])
+    outageMode ? [] : quickTips(title, faultType, faqs)
+  ), [title, faultType, faqs, outageMode])
   const canReply = Boolean(selectedTicket && selectedTicket.user_id === userId && selectedTicket.status !== 'مغلقة' && selectedTicket.status !== 'ملغاة')
 
   if (!entered) return <main className="employee-portal" style={{ minHeight: '100vh' }} aria-busy="true" />
@@ -716,7 +719,7 @@ export default function EmployeePage() {
             )}
 
             <TicketHistory events={events} />
-            <div style={{ marginTop: '1rem' }}><TicketFiles ticketId={selectedTicket.id} /></div>
+            <div style={{ marginTop: '1rem' }}><TicketFiles ticketId={selectedTicket.id} canUpload={selectedTicket.user_id === userId && selectedTicket.status !== 'ملغاة'} /></div>
 
           </div>
         </div>
@@ -737,9 +740,9 @@ export default function EmployeePage() {
               </div>
             )}
             {outageMode && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 1rem', lineHeight: 1.7 }}>يصل للدعم التقني عاجلاً، ويراه موظفو {headDepartment}.</p>}
-            {!outageMode && faqs.length > 0 && matchedFaqs.length === 0 && (
+            {!outageMode && matchedFaqs.length === 0 && faqs.length > 0 && (
               <details style={{ background: 'var(--field)', borderRadius: '8px', padding: '10px 12px', marginBottom: '1rem', fontSize: '13px' }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 700 }}>حلول سريعة قبل الإرسال ({faqs.length})</summary>
+                <summary style={{ cursor: 'pointer', fontWeight: 700 }}>كل الحلول المعتمدة ({faqs.length})</summary>
                 {faqs.map((item) => (
                   <p key={item.id} style={{ margin: '8px 0 0', color: 'var(--text-muted)', lineHeight: 1.7 }}><b style={{ color: 'var(--text)' }}>{item.title}: </b>{item.body}</p>
                 ))}
@@ -791,7 +794,16 @@ export default function EmployeePage() {
                   <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px' }}>
                     <span style={{ border: '1px solid #c4b5fd', borderRadius: '8px', padding: '8px 12px', fontWeight: 700, whiteSpace: 'nowrap' }}>إرفاق ملفات</span>
                     <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{ticketFiles.length ? ticketFiles.map((file) => file.name).join('، ') : 'صورة أو PDF، حتى 3 ملفات، أقل من 5 ميغابايت لكل ملف'}</span>
-                    <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple onChange={(event) => setTicketFiles(Array.from(event.target.files || []).slice(0, 3))} style={{ display: 'none' }} />
+                    <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf" multiple onChange={(event) => {
+                      const picked = Array.from(event.target.files || [])
+                      if (picked.some((file) => file.size > 5 * 1024 * 1024)) {
+                        setErrorMsg('حجم المرفق يجب أن يكون أقل من 5 ميغابايت.')
+                        event.target.value = ''
+                        return
+                      }
+                      setErrorMsg('')
+                      setTicketFiles(picked.slice(0, 3))
+                    }} style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }} />
                   </label>
                 </div>
               </details>

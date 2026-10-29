@@ -6,6 +6,22 @@ const MAX_FILES = 3
 const TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 const BUCKET = 'ticket-files'
 
+function fileType(file: File) {
+  if (TYPES.has(file.type)) return file.type
+  const name = file.name.toLowerCase()
+  if (name.endsWith('.png')) return 'image/png'
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg'
+  if (name.endsWith('.webp')) return 'image/webp'
+  if (name.endsWith('.pdf')) return 'application/pdf'
+  return ''
+}
+
+function uploadError(message: string) {
+  if (/bucket not found/i.test(message)) return 'تعذّر حفظ المرفق. مساحة الملفات غير جاهزة.'
+  if (/[\u0600-\u06FF]/.test(message)) return message
+  return 'تعذّر رفع المرفق.'
+}
+
 function cleanName(name: string) {
   const base = name.split(/[/\\]/).pop() || 'file'
   return base.replace(/[^\w.\u0600-\u06FF-]+/g, '_').slice(0, 80) || 'file'
@@ -47,7 +63,8 @@ export async function POST(request: Request) {
   if (gate?.must_change_password) return Response.json({ error: 'يجب تغيير كلمة المرور قبل استخدام سند.' }, { status: 403 })
   const staff = actor.role === 'admin' || actor.role === 'technician' || actor.role === 'manager'
   if (ticket.user_id !== actor.id && !staff) return Response.json({ error: 'رفع المرفقات متاح لصاحب البلاغ والفني فقط.' }, { status: 403 })
-  if (!TYPES.has(file.type)) return Response.json({ error: 'يُسمح بالصور وملفات PDF فقط.' }, { status: 400 })
+  const contentType = fileType(file)
+  if (!contentType) return Response.json({ error: 'يُسمح بالصور وملفات PDF فقط.' }, { status: 400 })
   if (file.size <= 0 || file.size > MAX_BYTES) return Response.json({ error: 'حجم المرفق يجب أن يكون أقل من 5 ميغابايت.' }, { status: 400 })
 
   const existing = await admin.from('ticket_attachments').select('id', { count: 'exact', head: true }).eq('ticket_id', ticketId)
@@ -55,22 +72,22 @@ export async function POST(request: Request) {
 
   const path = `${ticketId}/${crypto.randomUUID()}`
   const uploaded = await admin.storage.from(BUCKET).upload(path, Buffer.from(await file.arrayBuffer()), {
-    contentType: file.type,
+    contentType,
     upsert: false
   })
-  if (uploaded.error) return Response.json({ error: uploaded.error.message }, { status: 400 })
+  if (uploaded.error) return Response.json({ error: uploadError(uploaded.error.message) }, { status: 400 })
 
   const saved = await admin.from('ticket_attachments').insert({
     ticket_id: ticketId,
     file_name: cleanName(file.name),
     storage_path: path,
-    content_type: file.type,
+    content_type: contentType,
     size_bytes: file.size,
     uploaded_by: actor.id
   }).select('id').single()
   if (saved.error) {
     await admin.storage.from(BUCKET).remove([path])
-    return Response.json({ error: saved.error.message }, { status: 400 })
+    return Response.json({ error: uploadError(saved.error.message) }, { status: 400 })
   }
   return Response.json({ id: saved.data.id })
 }

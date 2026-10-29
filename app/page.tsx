@@ -1130,7 +1130,7 @@ export default function Page() {
               </form>
             )}
             <TicketHistory events={ticketEvents} />
-            <div style={{ marginTop: '1rem' }}><TicketFiles ticketId={selectedTicket.id} /></div>
+            <div style={{ marginTop: '1rem' }}><TicketFiles ticketId={selectedTicket.id} canUpload={selectedTicket.status !== 'ملغاة'} /></div>
           </div>
         </div>
       )}

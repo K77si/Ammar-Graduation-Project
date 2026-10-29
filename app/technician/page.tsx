@@ -629,7 +629,7 @@ export default function TechnicianPage() {
               </>}
             </div>
             <TicketHistory events={events} />
-            <div style={{ marginTop: '1rem' }}><TicketFiles ticketId={selectedTicket.id} /></div>
+            <div style={{ marginTop: '1rem' }}><TicketFiles ticketId={selectedTicket.id} canUpload={selectedTicket.status !== 'ملغاة'} /></div>
           </div>
         </div>
       )}
