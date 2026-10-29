@@ -539,7 +539,7 @@ export default function EmployeePage() {
         {portalView === 'اسأل سند' ? (
           <>
             <div className="ask-sanad">
-              <AiAssistant supabase={supabase} mode="employee" onOpenTicket={(question, fault) => openNewTicket(false, question, fault)} onTicketsChanged={() => fetchEmployeeData(userId)} />
+              <AiAssistant supabase={supabase} mode="employee" role={isHead ? 'department_head' : 'user'} onOpenTicket={(question, fault) => openNewTicket(false, question, fault)} onTicketsChanged={() => fetchEmployeeData(userId)} />
             </div>
             {userId && <AccountLog supabase={supabase} userId={userId} />}
           </>

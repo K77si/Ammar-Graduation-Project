@@ -140,7 +140,10 @@ function findPeople(people: Person[], text: string) {
 }
 
 function personChoices(list: Person[]): DeskChoice[] {
-  return list.map((person) => ({ id: person.id, label: `${person.full_name || 'مستخدم'} · ${roleLabel(person.role)} · ${departmentLabel(person.department)}` }))
+  return list.map((person) => ({
+    id: person.id,
+    label: `${person.full_name || 'مستخدم'} · ${roleLabel(person.role)} · ${departmentLabel(person.department)}${person.employee_number ? ` · ${person.employee_number}` : ''}`
+  }))
 }
 
 function delayed(row: Row) {
@@ -501,22 +504,29 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
       confirm: { action: 'rename_department', label: 'غيّر اسم القسم', payload: { from: match[1].trim(), to: match[2].trim() } }
     })
   }
-  if (/سوّ?ب\s*يوزر|أنشئ|انشئ|أضف مستخدم|اضف مستخدم|حساب جديد/.test(question)) {
+  if (/إنشاء حساب|انشاء حساب|سوّ?ب\s*يوزر|أنشئ|انشئ|أضف مستخدم|اضف مستخدم|حساب جديد/.test(question)) {
     if (!canManage(actor, 'users')) return say('إنشاء الحسابات من صلاحية المستخدمين.')
     const named = question.match(/(?:باسم|اسمه)\s+([\u0600-\u06FF\s]{3,40})/)
     const fullName = named?.[1]?.trim() || ''
-    if (fullName.length < 3) return say('اكتب: سوّب يوزر باسم ثم الاسم الثلاثي.', { kind: 'action' })
-    return say(`إنشاء حساب باسم ${fullName}. اختر الدور. حساب مدير النظام يُنشأ من شاشة المستخدمين لأنه يحتاج كلمة المالك.`, {
+    return say(fullName.length >= 3
+      ? `إنشاء حساب باسم ${fullName}. اختر نوع الحساب. مدير النظام يُنشأ من شاشة المستخدمين.`
+      : 'اختر نوع الحساب. مدير النظام يُنشأ من شاشة المستخدمين لأنه يحتاج كلمة المالك.', {
       choices: [...ROLE_CHOICES, CANCEL],
-      draft: { intent: 'create_user', step: 'role', fullName }
+      draft: { intent: 'create_user', step: 'role', ...(fullName.length >= 3 ? { fullName } : {}) }
     })
   }
-  if (/(?:غيّ?ر|بدّ?ل|بدل|إعادة تعيين|اعادة تعيين|أعد تعيين|اعد تعيين).{0,40}(?:كلمة\s*(?:السر|المرور)|باسورد)|(?:كلمة\s*(?:السر|المرور)|باسورد).{0,40}(?:جديد|غيّ?ر|بدّ?ل)/.test(question)) {
+  if (/(?:تغيير|تغير|غيّ?ر|بدّ?ل|بدل|إعادة تعيين|اعادة تعيين|أعد تعيين|اعد تعيين).{0,40}(?:كلمة\s*(?:السر|المرور)|باسورد)|(?:كلمة\s*(?:السر|المرور)|باسورد).{0,40}(?:جديد|غيّ?ر|بدّ?ل|تغيير)/.test(question)) {
     if (!canManage(actor, 'reset_password')) return say('تغيير كلمة المرور من صلاحية إعادة التعيين.')
-    const name = question.replace(/كلمة\s*(?:السر|المرور)|باسورد|جديد|إعادة|اعادة|تعيين|غيّ?ر|بدّ?ل|بدل|حساب|للمستخدم|للموظف/g, ' ')
+    const name = question.replace(/كلمة\s*(?:السر|المرور)|باسورد|جديد|إعادة|اعادة|تعيين|تغيير|تغير|غيّ?ر|بدّ?ل|بدل|حساب|للمستخدم|للموظف/g, ' ')
     const found = findPeople(desk.people, name)
-    if (!found.length) return say('اكتب: غيّر كلمة مرور ثم اسم الحساب.', { kind: 'action' })
-    if (found.length > 1) return say('أكثر من حساب. اختر واحداً.', { choices: personChoices(found), draft: { intent: 'reset_password', step: 'pick' } })
+    const eligible = desk.people.filter((person) => !isOwner(person))
+    if (name.trim().length < 2 || !found.length) {
+      return say(name.trim().length >= 2 ? 'ما لقيت هذا الاسم. ابحث في القائمة واختر الحساب.' : 'ابحث عن الموظف بالاسم أو رقم الموظف، ثم اختره.', {
+        choices: [...personChoices(eligible), CANCEL],
+        draft: { intent: 'reset_password', step: 'pick' }
+      })
+    }
+    if (found.length > 1) return say('أكثر من حساب. ابحث واختر واحداً.', { choices: [...personChoices(found), CANCEL], draft: { intent: 'reset_password', step: 'pick' } })
     return passwordPrompt(found[0])
   }
   if (/احذف|عطّل حساب|عطل حساب|أوقف حساب|اوقف حساب/.test(question)) {
@@ -637,16 +647,28 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply {
     return say('تأكيد جعل البلاغ منجزاً بهذا الحل.', { confirm: { action: 'close', label: 'اجعله منجزاً', payload: { ticketId: draft.ticketId, resolution: text.slice(0, 500), fault: draft.fault || '' } }, draft: null })
   }
   if (draft.intent !== 'create_user') return say('الأمر انقطع. ابدأ من جديد.', { draft: null })
-  if (draft.step === 'role') {
-    if (!ROLE_CHOICES.some((item) => item.id === choice)) return say('اختر الدور من الأزرار.', { choices: [...ROLE_CHOICES, CANCEL], draft })
-    draft.role = choice
-    if (choice === 'technician') {
+  const afterIdentity = () => {
+    if (draft.role === 'technician') {
       draft.department = TECH_DEPARTMENT
       draft.step = 'email'
-      return say(`الدور فني الدعم والقسم ${TECH_DEPARTMENT}. اكتب البريد الإلكتروني.`, { choices: [CANCEL], draft })
+      return say(`النوع فني الدعم والقسم ${TECH_DEPARTMENT}. اكتب البريد الإلكتروني.`, { choices: [CANCEL], draft })
     }
     draft.step = 'department'
     return say('اختر القسم.', { choices: [...desk.departments.map((item) => ({ id: item, label: item })), CANCEL], draft })
+  }
+  if (draft.step === 'role') {
+    if (!ROLE_CHOICES.some((item) => item.id === choice)) return say('اختر نوع الحساب.', { choices: [...ROLE_CHOICES, CANCEL], draft })
+    draft.role = choice
+    if ((draft.fullName || '').trim().length < 3) {
+      draft.step = 'name'
+      return say(`النوع: ${roleLabel(choice)}. اكتب الاسم الثلاثي.`, { choices: [CANCEL], draft })
+    }
+    return afterIdentity()
+  }
+  if (draft.step === 'name') {
+    if (text.length < 3) return say('اكتب الاسم الثلاثي.', { choices: [CANCEL], draft })
+    draft.fullName = text
+    return afterIdentity()
   }
   if (draft.step === 'department') {
     if (!choice || choice === 'cancel') return say('اختر القسم من الأزرار.', { choices: [...desk.departments.map((item) => ({ id: item, label: item })), CANCEL], draft })

@@ -24,10 +24,52 @@ type Reply = {
 }
 type Status = { configured: boolean; enabled: boolean } | null
 type Mode = 'employee' | 'technician' | 'admin'
+type Persona = 'user' | 'department_head' | 'technician' | 'admin'
+
+const PROMPTS: Record<Persona, { label: string; question: string }[]> = {
+  admin: [
+    { label: 'إنشاء حساب', question: 'إنشاء حساب' },
+    { label: 'تغيير كلمة المرور', question: 'تغيير كلمة المرور' },
+    { label: 'تقرير اليوم', question: 'تقرير اليوم' },
+    { label: 'البلاغات المفتوحة', question: 'كم بلاغ مفتوح' }
+  ],
+  technician: [
+    { label: 'من أين أبدأ', question: 'أبدأ بأي بلاغ' },
+    { label: 'البلاغات المفتوحة', question: 'كم بلاغ مفتوح' },
+    { label: 'تسليم الوردية', question: 'تسليم الوردية' }
+  ],
+  department_head: [
+    { label: 'تعطل القسم', question: 'تعطل القسم' },
+    { label: 'بلاغات الموظفين', question: 'بلاغات موظفين قسمي' },
+    { label: 'مقارنة الأسبوع', question: 'بلاغات الأسبوع' }
+  ],
+  user: [
+    { label: 'بلاغاتي المفتوحة', question: 'كم بلاغ مفتوح عندي' },
+    { label: 'جهازي لا يعمل', question: 'جهازي لا يعمل' },
+    { label: 'الطابعة لا تطبع', question: 'الطابعة لا تطبع' }
+  ]
+}
+
+const INTRO: Record<Persona, string> = {
+  admin: 'أنشئ حساباً، غيّر كلمة مرور، أو اسأل عن البلاغات والأعداد.',
+  technician: 'اسأل عن الطابور، أو من أين تبدأ الاستلام.',
+  department_head: 'تابع تعطل القسم وبلاغات موظفيك.',
+  user: 'صف العطل، أو اسأل عن بلاغاتك.'
+}
+
+const STEP_HINT: Record<string, string> = {
+  name: 'الاسم الثلاثي',
+  email: 'البريد الإلكتروني',
+  username: 'اسم المستخدم بالإنجليزية',
+  number: 'رقم الموظف من 9 أرقام',
+  password: 'كلمة المرور الجديدة',
+  resolution: 'اكتب ماذا تم إصلاحه'
+}
 
 export function AiAssistant({
   supabase,
   mode = 'employee',
+  role,
   seed = '',
   compact = false,
   ticketId = '',
@@ -36,6 +78,7 @@ export function AiAssistant({
 }: {
   supabase: SupabaseClient
   mode?: Mode
+  role?: Persona
   seed?: string
   compact?: boolean
   ticketId?: string
@@ -53,6 +96,7 @@ export function AiAssistant({
   const [filedNo, setFiledNo] = useState('')
   const [draft, setDraft] = useState<Record<string, string> | null>(null)
   const [image, setImage] = useState<{ mediaType: string; data: string; name: string } | null>(null)
+  const [pickQuery, setPickQuery] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -121,8 +165,9 @@ export function AiAssistant({
     const result = await response.json().catch(() => ({ error: 'تعذّر الوصول إلى المساعد الذكي.' }))
     setLoading(false)
     if (!response.ok) { setError(result.error || 'تعذّر الوصول إلى المساعد الذكي.'); return }
-    setAsked(text)
+    if (draft?.step !== 'password') setAsked(text)
     setQuestion('')
+    setPickQuery('')
     setImage(null)
     setDraft(result.draft || null)
     setReply(result)
@@ -181,19 +226,20 @@ export function AiAssistant({
   if (status.configured && !status.enabled && mode !== 'admin') return null
   const ready = status.enabled || mode === 'admin'
   const helpReply = reply?.kind === 'help'
-  const canSend = question.trim().length >= 5 || Boolean(image) || Boolean(draft)
 
-  const placeholder = compact ? 'اسأل عن هذا البلاغ' : 'اكتب سؤالك هنا'
-  const prompts = mode === 'admin'
-    ? ['تقرير اليوم', 'كم بلاغ مفتوح', 'عدد الموظفين']
-    : mode === 'technician'
-      ? ['كم بلاغ مفتوح', 'أبدأ بأي بلاغ', 'تسليم الوردية']
-      : ['كم بلاغ مفتوح عندي', 'جهازي لا يعمل', 'الطابعة لا تطبع']
-  const intro = mode === 'admin'
-    ? 'اسأل عن الأعداد والبلاغات، أو اطلب إنشاء حساب.'
-    : mode === 'technician'
-      ? 'اسأل عن الطابور، أو من أين تبدأ.'
-      : 'صف العطل، أو اسأل عن بلاغاتك.'
+  const persona: Persona = role || (mode === 'admin' ? 'admin' : mode === 'technician' ? 'technician' : 'user')
+  const prompts = PROMPTS[persona]
+  const intro = INTRO[persona]
+  const step = draft?.step || ''
+  const placeholder = compact ? 'اسأل عن هذا البلاغ' : (STEP_HINT[step] || 'اكتب سؤالك هنا')
+  const secretStep = step === 'password'
+  const choices = reply?.choices || []
+  const listed = choices.filter((choice) => choice.id !== 'cancel')
+  const cancelChoice = choices.find((choice) => choice.id === 'cancel')
+  const usePicker = listed.length > 8
+  const picked = listed.filter((choice) => choice.label.includes(pickQuery.trim()))
+  const guiding = Boolean(draft || choices.length || reply?.confirm)
+  const canSend = STEP_HINT[step] ? question.trim().length >= 1 : question.trim().length >= 5 || Boolean(image)
 
   return (
     <section className={`ai-gemini ${compact ? 'ai-gemini-compact' : ''}`}>
@@ -230,16 +276,18 @@ export function AiAssistant({
           disabled={!ready}
           placeholder={placeholder}
           maxLength={600}
+          type={secretStep ? 'password' : 'text'}
+          autoComplete={secretStep ? 'new-password' : 'off'}
         />
         <button type="submit" className="ai-gemini-send" disabled={!ready || loading || !canSend} aria-label="اسأل">
           {loading ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} />}
         </button>
       </form>
 
-      {!compact && !reply && !draft && (
+      {!compact && !guiding && (
         <div className="ai-gemini-prompts">
           {prompts.map((prompt) => (
-            <button key={prompt} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt })}>{prompt}</button>
+            <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>
           ))}
         </div>
       )}
@@ -254,14 +302,31 @@ export function AiAssistant({
           <p>{reply.answer}</p>
           {reply.steps.length > 0 && (
             <ol>
-              {reply.steps.map((step, index) => <li key={index}>{step}</li>)}
+              {reply.steps.map((item, index) => <li key={index}>{item}</li>)}
             </ol>
           )}
-          {(reply.choices?.length || reply.confirm || reply.followups?.length) ? (
+          {(choices.length || reply.confirm || reply.followups?.length) ? (
             <div className="ai-box-actions">
-              {reply.choices?.map((choice) => (
+              {usePicker ? (
+                <div className="ai-picker">
+                  <input
+                    value={pickQuery}
+                    onChange={(event) => setPickQuery(event.target.value)}
+                    placeholder="ابحث بالاسم أو رقم الموظف"
+                    aria-label="بحث في الحسابات"
+                  />
+                  <div className="ai-picker-list">
+                    {picked.length === 0 ? <p>لا يوجد حساب بهذا البحث.</p> : picked.map((choice) => (
+                      <button key={choice.id} type="button" disabled={loading} onClick={() => void send({ question: choice.label, choice: choice.id })}>{choice.label}</button>
+                    ))}
+                  </div>
+                </div>
+              ) : listed.map((choice) => (
                 <button key={choice.id} type="button" className="ai-ghost" disabled={loading} onClick={() => void send({ question: choice.label, choice: choice.id })}>{choice.label}</button>
               ))}
+              {cancelChoice && (
+                <button type="button" className="ai-ghost" disabled={loading} onClick={() => void send({ question: cancelChoice.label, choice: cancelChoice.id })}>{cancelChoice.label}</button>
+              )}
               {reply.confirm && (
                 <button type="button" className="ai-primary" disabled={loading} onClick={() => void send({ question: 'تأكيد', confirm: reply.confirm })}>{reply.confirm.label}</button>
               )}

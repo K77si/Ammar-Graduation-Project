@@ -895,6 +895,53 @@ details.fold[open] > summary::after {
   cursor: not-allowed;
 }
 
+.ai-picker {
+  flex: 1 0 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-picker input {
+  width: 100%;
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.ai-picker-list {
+  max-height: 260px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-picker-list p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.ai-picker-list button {
+  text-align: start;
+  background: var(--field);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ai-picker-list button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
 .ai-gemini-send:disabled {
   opacity: 0.45;
   cursor: not-allowed;
