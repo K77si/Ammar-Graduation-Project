@@ -146,6 +146,50 @@ function personChoices(list: Person[]): DeskChoice[] {
   }))
 }
 
+function ticketChoices(rows: Row[]): DeskChoice[] {
+  return rows.slice(0, 30).map((row) => ({
+    id: row.id,
+    label: `${formatTicketNo(row.ticket_number)} ${problemOf(row).slice(0, 48)}`
+  }))
+}
+
+function peopleMenu(people: Person[], message: string, intent: string): DeskReply {
+  const list = people.filter((person) => !isOwner(person))
+  if (!list.length) return say('ما فيه حسابات يمكن اختيارها.', { kind: 'stats' })
+  return say(message, { choices: [...personChoices(list), CANCEL], draft: { intent, step: 'pick' } })
+}
+
+function closeOffer(hit: Row): DeskReply {
+  if (!hit.fault_type || hit.fault_type === 'أخرى') {
+    return say(`البلاغ ${formatTicketNo(hit.ticket_number)}. اختر نوع العطل قبل الإنجاز.`, {
+      choices: [...FAULT_TYPES.filter((item) => item !== 'أخرى').map((item) => ({ id: item, label: item })), CANCEL],
+      draft: { intent: 'close', step: 'fault', ticketId: hit.id }
+    })
+  }
+  if ((hit.resolution || '').trim().length < 3) {
+    return say(`البلاغ ${formatTicketNo(hit.ticket_number)}. اكتب نص الحل.`, {
+      choices: [CANCEL],
+      draft: { intent: 'close', step: 'resolution', ticketId: hit.id, fault: hit.fault_type }
+    })
+  }
+  return say(`البلاغ ${formatTicketNo(hit.ticket_number)} فيه نوع عطل وحل. تأكيد الإنجاز.`, {
+    choices: [CANCEL],
+    confirm: { action: 'close', label: 'اجعله منجزاً', payload: { ticketId: hit.id, resolution: hit.resolution || '' } }
+  })
+}
+
+function suggestAssign(desk: Desk, hit: Row): DeskReply {
+  const techs = desk.people.filter((person) => isTechnicianRole(person.role) && person.availability !== 'خارج الدوام' && person.is_approved !== false)
+    .map((person) => ({ person, open: desk.rows.filter((row) => row.assigned_technician === person.id && isActive(row.status)).length }))
+    .sort((a, b) => a.open - b.open)
+  if (!techs.length) return say('ما فيه فني متاح الآن.', { kind: 'stats' })
+  const best = techs[0]
+  return say(`أقترح إسناد ${formatTicketNo(hit.ticket_number)} إلى ${best.person.full_name}، عنده ${best.open} بلاغ مفتوح.`, {
+    choices: [CANCEL],
+    confirm: { action: 'assign', label: 'أسند البلاغ', payload: { ticketId: hit.id, technicianId: best.person.id } }
+  })
+}
+
 function delayed(row: Row) {
   if (row.status !== 'مفتوحة' || row.assigned_technician) return false
   return Date.now() - new Date(row.created_at).getTime() > 24 * 60 * 60 * 1000
@@ -348,12 +392,22 @@ function technicianDesk(desk: Desk, actor: Actor, question: string): DeskReply |
   if (/رد جاهز|قالب/.test(question)) {
     return say(desk.templates.length ? `قوالب الرد:\n${desk.templates.slice(0, 5).map((item, index) => `${index + 1}. ${item}`).join('\n')}` : 'ما فيه قوالب رد محفوظة.', { kind: 'stats' })
   }
+  if (/متأخر/.test(question)) {
+    const rows = desk.rows.filter(delayed)
+    return say(listLines(rows, actor.id, desk.names, 'بلاغات متأخرة أكثر من يوم'), { kind: 'stats' })
+  }
   if (/ملاحظة/.test(question)) {
     const number = question.match(/(\d{3,})/)
-    const body = question.split(/ملاحظة/).slice(1).join(' ').replace(/^[\s:]+/, '').trim()
+    const body = question.split(/ملاحظة/).slice(1).join(' ').replace(/^[\s:]+|داخلية/g, ' ').trim()
     const hit = number ? ticketByNumber(desk, number[1]) : null
-    if (!hit || body.length < 2) return say('اكتب: ملاحظة على رقم البلاغ ثم نص الملاحظة. الملاحظة يراها الفني والمدير فقط.', { kind: 'action' })
+    if (!hit) {
+      const mine = desk.rows.filter((row) => row.assigned_technician === actor.id && isActive(row.status))
+      if (!mine.length) return say('ما فيه بلاغ مسند لك لتكتب عليه ملاحظة.', { kind: 'stats' })
+      return say('اختر البلاغ، ثم اكتب الملاحظة. يراها الفني والمدير فقط.', { choices: [...ticketChoices(mine), CANCEL], draft: { intent: 'note', step: 'ticket' } })
+    }
+    if (body.length < 2) return say(`اكتب الملاحظة الداخلية على ${formatTicketNo(hit.ticket_number)}.`, { choices: [CANCEL], draft: { intent: 'note', step: 'body', ticketId: hit.id } })
     return say(`تُحفظ ملاحظة داخلية على ${formatTicketNo(hit.ticket_number)} ولا يراها الموظف.`, {
+      choices: [CANCEL],
       confirm: { action: 'note', label: 'احفظ الملاحظة', payload: { ticketId: hit.id, body: body.slice(0, 400) } }
     })
   }
@@ -372,22 +426,15 @@ function technicianDesk(desk: Desk, actor: Actor, question: string): DeskReply |
     if (!hit) return say('اكتب رقم البلاغ مع كلمة لخص أو تاريخ.', { kind: 'stats' })
     return say(`الخلاصة: ${lineOf(hit, actor.id, desk.names)}${hit.resolution ? `\nالحل المسجل: ${hit.resolution.slice(0, 180)}` : ''}`, { kind: 'stats' })
   }
-  if (/أنجز|انجز|أغلق|اغلق/.test(question)) {
+  if (/أنجز|انجز|إنجاز|انجاز|أغلق|اغلق/.test(question)) {
     const number = question.match(/(\d{3,})/)
     const hit = number ? ticketByNumber(desk, number[1]) : null
-    if (!hit) return say('اكتب رقم البلاغ الذي تريد جعله منجزاً.', { kind: 'action' })
-    if (!hit.fault_type || hit.fault_type === 'أخرى') {
-      return say('قبل الإنجاز اختر نوع العطل.', {
-        choices: FAULT_TYPES.filter((item) => item !== 'أخرى').map((item) => ({ id: item, label: item })),
-        draft: { intent: 'close', step: 'fault', ticketId: hit.id }
-      })
+    if (!hit) {
+      const mine = desk.rows.filter((row) => row.assigned_technician === actor.id && isActive(row.status))
+      if (!mine.length) return say('ما فيه بلاغ مسند لك لإنجازه.', { kind: 'stats' })
+      return say('اختر البلاغ الذي تريد إنجازه.', { choices: [...ticketChoices(mine), CANCEL], draft: { intent: 'close', step: 'ticket' } })
     }
-    if ((hit.resolution || '').trim().length < 3) {
-      return say('اكتب نص الحل في الرسالة التالية. لا يُنجز البلاغ من غيره.', { draft: { intent: 'close', step: 'resolution', ticketId: hit.id, fault: hit.fault_type } })
-    }
-    return say(`البلاغ ${formatTicketNo(hit.ticket_number)} فيه نوع عطل وحل. تأكيد الإنجاز.`, {
-      confirm: { action: 'close', label: 'اجعله منجزاً', payload: { ticketId: hit.id, resolution: hit.resolution || '' } }
-    })
+    return closeOffer(hit)
   }
   return null
 }
@@ -494,7 +541,7 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
   if (/أضف قسم|اضف قسم|قسم جديد/.test(question)) {
     if (!canManage(actor, 'settings')) return say('إضافة الأقسام من صلاحية الإعدادات.')
     const name = question.replace(/.*قسم(?:\s+جديد)?\s*(?:باسم|اسمه)?\s*/, '').trim()
-    if (name.length < 2) return say('اكتب: أضف قسم باسم ثم اسم القسم.', { kind: 'action' })
+    if (name.length < 2) return say('اكتب اسم القسم الجديد.', { choices: [CANCEL], draft: { intent: 'add_department', step: 'deptname' } })
     return say(`سيُضاف القسم «${name}» إلى الإعدادات.`, { confirm: { action: 'add_department', label: 'أضف القسم', payload: { name } } })
   }
   if (/اسم قسم/.test(question)) {
@@ -529,12 +576,13 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
     if (found.length > 1) return say('أكثر من حساب. ابحث واختر واحداً.', { choices: [...personChoices(found), CANCEL], draft: { intent: 'reset_password', step: 'pick' } })
     return passwordPrompt(found[0])
   }
-  if (/احذف|عطّل حساب|عطل حساب|أوقف حساب|اوقف حساب/.test(question)) {
+  if (/احذف|حذف حساب|عطّل حساب|عطل حساب|تعطيل حساب|أوقف حساب|اوقف حساب/.test(question)) {
     const disabling = /عط|اوقف|أوقف/.test(question)
     if (!canManage(actor, disabling ? 'approvals' : 'delete_users')) return say(disabling ? 'تعطيل الحساب من صلاحية الاعتمادات.' : 'حذف الحساب من صلاحية حذف الحسابات.')
-    const name = question.replace(/.*(?:احذف|حساب)\s*/, '').trim()
+    const name = question.replace(/تعطيل|إيقاف|ايقاف|عطّ?ل|احذف|حذف|حساب/g, ' ').trim()
+    if (name.length < 2) return peopleMenu(desk.people, disabling ? 'ابحث عن الحساب ثم اختره لإيقاف دخوله.' : 'ابحث عن الحساب ثم اختره لحذفه نهائياً.', disabling ? 'disable' : 'delete')
     const found = findPeople(desk.people, name)
-    if (!found.length) return say('ما لقيت هذا الحساب.', { kind: 'action' })
+    if (!found.length) return peopleMenu(desk.people, 'ما لقيت هذا الاسم. ابحث في القائمة.', disabling ? 'disable' : 'delete')
     if (found.length > 1) return say('أكثر من حساب. اختر واحداً.', { choices: personChoices(found), draft: { intent: disabling ? 'disable' : 'delete', step: 'pick' } })
     return confirmPerson(actor, desk, found[0], disabling ? 'disable' : 'delete')
   }
@@ -553,27 +601,30 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
       if (found.length !== 1) return say('حدد الحساب من القائمة.', { choices: personChoices(found), draft: { intent: 'role', step: 'pick', role } })
       return say(`تغيير دور ${found[0].full_name} إلى ${roleLabel(role)}.`, { confirm: { action: 'update_user', label: 'غيّر الدور', payload: { userId: found[0].id, role, department: found[0].department || '' } } })
     }
-    return say('اكتب: انقل الاسم إلى اسم القسم، أو غيّر دور الاسم إلى فني.', { kind: 'action' })
+    if (/دور/.test(question)) return peopleMenu(desk.people, 'ابحث عن الحساب ثم اختر الدور الجديد.', 'role')
+    return peopleMenu(desk.people, 'ابحث عن الحساب ثم اختر القسم الجديد.', 'move')
   }
   if (/أسند|اسند/.test(question)) {
     if (!canManage(actor, 'tickets')) return say('إسناد البلاغ من صلاحية البلاغات.')
     const number = question.match(/(\d{3,})/)
     const hit = number ? ticketByNumber(desk, number[1]) : null
-    if (!hit) return say('اكتب: أسند رقم البلاغ.', { kind: 'action' })
-    const techs = desk.people.filter((person) => isTechnicianRole(person.role) && person.availability !== 'خارج الدوام' && person.is_approved !== false)
-      .map((person) => ({ person, open: desk.rows.filter((row) => row.assigned_technician === person.id && isActive(row.status)).length }))
-      .sort((a, b) => a.open - b.open)
-    if (!techs.length) return say('ما فيه فني متاح الآن.', { kind: 'stats' })
-    const best = techs[0]
-    return say(`أقترح إسناد ${formatTicketNo(hit.ticket_number)} إلى ${best.person.full_name}، عنده ${best.open} بلاغ مفتوح.`, {
-      confirm: { action: 'assign', label: 'أسند البلاغ', payload: { ticketId: hit.id, technicianId: best.person.id } }
-    })
+    if (!hit) {
+      const open = desk.rows.filter((row) => isActive(row.status))
+      if (!open.length) return say('ما فيه بلاغ مفتوح للإسناد.', { kind: 'stats' })
+      return say('اختر البلاغ، وبعدها أقترح الفني الأقل انشغالاً.', { choices: [...ticketChoices(open), CANCEL], draft: { intent: 'assign', step: 'ticket' } })
+    }
+    return suggestAssign(desk, hit)
   }
   if (/أضف الحل|اضف الحل|للأسئلة الشائعة|للاسئلة الشائعة/.test(question)) {
     if (!canManage(actor, 'settings')) return say('إضافة الحلول من صلاحية الإعدادات.')
     const number = question.match(/(\d{3,})/)
     const hit = number ? ticketByNumber(desk, number[1]) : null
-    if (!hit || (hit.resolution || '').trim().length < 3) return say('اكتب: أضف الحل للأسئلة الشائعة من بلاغ رقمه، بعد ما يكون الحل مسجلاً.', { kind: 'action' })
+    if (!hit) {
+      const done = desk.rows.filter((row) => (row.resolution || '').trim().length >= 3)
+      if (!done.length) return say('ما فيه بلاغ بحل مسجل يمكن إضافته.', { kind: 'stats' })
+      return say('اختر البلاغ الذي تريد نقل حله إلى الأسئلة الشائعة.', { choices: [...ticketChoices(done), CANCEL], draft: { intent: 'faq', step: 'pick' } })
+    }
+    if ((hit.resolution || '').trim().length < 3) return say('هذا البلاغ بلا حل مسجل.', { kind: 'action' })
     return say(`سيُضاف حل ${formatTicketNo(hit.ticket_number)} إلى الأسئلة الشائعة.`, {
       confirm: { action: 'add_faq', label: 'أضف الحل', payload: { title: problemOf(hit).slice(0, 80), body: (hit.resolution || '').slice(0, 500) } }
     })
@@ -629,15 +680,74 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply {
     if (!person) return say('الحساب غير موجود.', { draft: null })
     return confirmPerson(actor, desk, person, draft.intent)
   }
-  if (draft.intent === 'move' && choice) {
+  if (draft.intent === 'move' && draft.step === 'pick' && choice) {
+    const person = desk.people.find((item) => item.id === choice)
+    if (!person) return say('الحساب غير موجود.', { draft: null })
+    return say(`اختر القسم الجديد لـ ${person.full_name}.`, {
+      choices: [...desk.departments.map((item) => ({ id: item, label: item })), CANCEL],
+      draft: { intent: 'move', step: 'department', userId: person.id }
+    })
+  }
+  if (draft.intent === 'move' && draft.step === 'department' && choice && choice !== 'cancel') {
+    const person = desk.people.find((item) => item.id === draft.userId)
+    if (!person) return say('الحساب غير موجود.', { draft: null })
+    return say(`نقل ${person.full_name} إلى ${choice}.`, { confirm: { action: 'update_user', label: 'انقل الحساب', payload: { userId: person.id, department: choice, role: person.role || 'user' } }, draft: null })
+  }
+  if (draft.intent === 'move' && choice && draft.department) {
     const person = desk.people.find((item) => item.id === choice)
     if (!person) return say('الحساب غير موجود.', { draft: null })
     return say(`نقل ${person.full_name} إلى ${draft.department}.`, { confirm: { action: 'update_user', label: 'انقل الحساب', payload: { userId: person.id, department: draft.department, role: person.role || 'user' } }, draft: null })
   }
-  if (draft.intent === 'role' && choice) {
+  if (draft.intent === 'role' && draft.step === 'pick' && choice && !draft.role) {
+    const person = desk.people.find((item) => item.id === choice)
+    if (!person) return say('الحساب غير موجود.', { draft: null })
+    return say(`اختر الدور الجديد لـ ${person.full_name}.`, {
+      choices: [...ROLE_CHOICES, CANCEL],
+      draft: { intent: 'role', step: 'role', userId: person.id }
+    })
+  }
+  if (draft.intent === 'role' && draft.step === 'role' && choice) {
+    const person = desk.people.find((item) => item.id === draft.userId)
+    if (!person) return say('الحساب غير موجود.', { draft: null })
+    if (!ROLE_CHOICES.some((item) => item.id === choice)) return say('اختر الدور من الأزرار.', { choices: [...ROLE_CHOICES, CANCEL], draft })
+    return say(`تغيير دور ${person.full_name} إلى ${roleLabel(choice)}.`, { confirm: { action: 'update_user', label: 'غيّر الدور', payload: { userId: person.id, role: choice, department: person.department || '' } }, draft: null })
+  }
+  if (draft.intent === 'role' && choice && draft.role && draft.step !== 'role') {
     const person = desk.people.find((item) => item.id === choice)
     if (!person) return say('الحساب غير موجود.', { draft: null })
     return say(`تغيير دور ${person.full_name}.`, { confirm: { action: 'update_user', label: 'غيّر الدور', payload: { userId: person.id, role: draft.role, department: person.department || '' } }, draft: null })
+  }
+  if (draft.intent === 'assign' && draft.step === 'ticket' && choice) {
+    const hit = desk.rows.find((row) => row.id === choice)
+    if (!hit) return say('البلاغ غير موجود.', { draft: null })
+    return suggestAssign(desk, hit)
+  }
+  if (draft.intent === 'faq' && choice) {
+    const hit = desk.rows.find((row) => row.id === choice)
+    if (!hit || (hit.resolution || '').trim().length < 3) return say('هذا البلاغ بلا حل مسجل.', { draft: null })
+    return say(`سيُضاف حل ${formatTicketNo(hit.ticket_number)} إلى الأسئلة الشائعة.`, {
+      choices: [CANCEL],
+      confirm: { action: 'add_faq', label: 'أضف الحل', payload: { title: problemOf(hit).slice(0, 80), body: (hit.resolution || '').slice(0, 500) } },
+      draft: null
+    })
+  }
+  if (draft.intent === 'add_department' && draft.step === 'deptname') {
+    if (text.length < 2) return say('اكتب اسم القسم.', { choices: [CANCEL], draft })
+    return say(`سيُضاف القسم «${text.trim()}».`, { choices: [CANCEL], confirm: { action: 'add_department', label: 'أضف القسم', payload: { name: text.trim() } }, draft: null })
+  }
+  if (draft.intent === 'close' && draft.step === 'ticket' && choice) {
+    const hit = desk.rows.find((row) => row.id === choice)
+    if (!hit) return say('البلاغ غير موجود.', { draft: null })
+    return closeOffer(hit)
+  }
+  if (draft.intent === 'note' && draft.step === 'ticket' && choice) {
+    const hit = desk.rows.find((row) => row.id === choice)
+    if (!hit) return say('البلاغ غير موجود.', { draft: null })
+    return say(`اكتب الملاحظة الداخلية على ${formatTicketNo(hit.ticket_number)}.`, { choices: [CANCEL], draft: { intent: 'note', step: 'body', ticketId: hit.id } })
+  }
+  if (draft.intent === 'note' && draft.step === 'body') {
+    if (text.length < 2) return say('اكتب الملاحظة.', { choices: [CANCEL], draft })
+    return say('تأكيد حفظ الملاحظة الداخلية.', { choices: [CANCEL], confirm: { action: 'note', label: 'احفظ الملاحظة', payload: { ticketId: draft.ticketId, body: text.slice(0, 400) } }, draft: null })
   }
   if (draft.intent === 'close' && draft.step === 'fault' && choice) {
     return say('اكتب نص الحل في الرسالة التالية.', { draft: { ...draft, step: 'resolution', fault: choice } })
@@ -926,10 +1036,6 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
   const meaning = /معنى|يعني|شرح الحالة/.test(question) ? statusHelp(question) : ''
   if (meaning) return { type: 'reply', reply: say(meaning, { kind: 'stats' }) }
   const role = desk.role
-  if (toolAction(question)) {
-    const facts = answerTickets(desk, actor, role === 'department_head' || role === 'user' ? 'بلاغاتي المفتوحة' : 'وش عندنا تذاكر اليوم والمفتوحة').answer
-    return { type: 'help', preface: helpPreface(desk, actor, question), facts }
-  }
   const specific = role === 'admin'
     ? adminDesk(desk, actor, question)
     : role === 'department_head'
@@ -938,6 +1044,10 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
         ? technicianDesk(desk, actor, question)
         : employeeDesk(desk, actor, question)
   if (specific) return { type: 'reply', reply: specific }
+  if (toolAction(question)) {
+    const facts = answerTickets(desk, actor, role === 'department_head' || role === 'user' ? 'بلاغاتي المفتوحة' : 'وش عندنا تذاكر اليوم والمفتوحة').answer
+    return { type: 'help', preface: helpPreface(desk, actor, question), facts }
+  }
   if (ticketQuestion(question) || /عطل جماعي|متأخر/.test(question)) {
     await recordListedQuestions(desk, actor, question)
     return { type: 'reply', reply: answerTickets(desk, actor, question) }

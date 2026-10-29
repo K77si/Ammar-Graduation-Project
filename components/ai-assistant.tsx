@@ -26,35 +26,56 @@ type Status = { configured: boolean; enabled: boolean } | null
 type Mode = 'employee' | 'technician' | 'admin'
 type Persona = 'user' | 'department_head' | 'technician' | 'admin'
 
-const PROMPTS: Record<Persona, { label: string; question: string }[]> = {
+type Chip = { label: string; question: string; group: string; need?: string }
+
+const MENUS: Record<Persona, Chip[]> = {
   admin: [
-    { label: 'إنشاء حساب', question: 'إنشاء حساب' },
-    { label: 'تغيير كلمة المرور', question: 'تغيير كلمة المرور' },
-    { label: 'تقرير اليوم', question: 'تقرير اليوم' },
-    { label: 'البلاغات المفتوحة', question: 'كم بلاغ مفتوح' }
+    { group: 'حسابات', need: 'users', label: 'إنشاء حساب', question: 'إنشاء حساب' },
+    { group: 'حسابات', need: 'reset_password', label: 'تغيير كلمة المرور', question: 'تغيير كلمة المرور' },
+    { group: 'حسابات', need: 'approvals', label: 'بانتظار الاعتماد', question: 'حسابات بانتظار الاعتماد' },
+    { group: 'حسابات', need: 'approvals', label: 'تعطيل حساب', question: 'تعطيل حساب' },
+    { group: 'حسابات', need: 'delete_users', label: 'حذف حساب', question: 'حذف حساب' },
+    { group: 'حسابات', need: 'users', label: 'نقل لقسم', question: 'انقل حساب' },
+    { group: 'حسابات', need: 'users', label: 'تغيير الدور', question: 'غيّر دور' },
+    { group: 'حسابات', need: 'settings', label: 'إضافة قسم', question: 'أضف قسم' },
+    { group: 'بلاغات', need: 'tickets', label: 'تقرير اليوم', question: 'تقرير اليوم' },
+    { group: 'بلاغات', need: 'tickets', label: 'البلاغات المفتوحة', question: 'كم بلاغ مفتوح' },
+    { group: 'بلاغات', need: 'tickets', label: 'الفني الفاضي', question: 'مين فاضي' },
+    { group: 'بلاغات', need: 'tickets', label: 'أكثر الأعطال', question: 'أكثر الأعطال' },
+    { group: 'بلاغات', need: 'tickets', label: 'إسناد بلاغ', question: 'أسند بلاغ' },
+    { group: 'بلاغات', need: 'settings', label: 'للأسئلة الشائعة', question: 'أضف الحل للأسئلة الشائعة' }
   ],
   technician: [
-    { label: 'من أين أبدأ', question: 'أبدأ بأي بلاغ' },
-    { label: 'البلاغات المفتوحة', question: 'كم بلاغ مفتوح' },
-    { label: 'تسليم الوردية', question: 'تسليم الوردية' }
+    { group: 'بلاغات', label: 'من أين أبدأ', question: 'أبدأ بأي بلاغ' },
+    { group: 'بلاغات', label: 'البلاغات المفتوحة', question: 'كم بلاغ مفتوح' },
+    { group: 'بلاغات', label: 'المتأخرة', question: 'البلاغات المتأخرة' },
+    { group: 'بلاغات', label: 'تسليم الوردية', question: 'تسليم الوردية' },
+    { group: 'بلاغات', label: 'إنجاز بلاغ', question: 'إنجاز بلاغ' },
+    { group: 'بلاغات', label: 'ملاحظة داخلية', question: 'ملاحظة داخلية' }
   ],
   department_head: [
-    { label: 'تعطل القسم', question: 'تعطل القسم' },
-    { label: 'بلاغات الموظفين', question: 'بلاغات موظفين قسمي' },
-    { label: 'مقارنة الأسبوع', question: 'بلاغات الأسبوع' }
+    { group: 'بلاغات', label: 'تعطل القسم', question: 'تعطل القسم' },
+    { group: 'بلاغات', label: 'بلاغات الموظفين', question: 'بلاغات موظفين قسمي' },
+    { group: 'بلاغات', label: 'مقارنة الأسبوع', question: 'بلاغات الأسبوع' },
+    { group: 'بلاغات', label: 'مين المتابع', question: 'من المتابع' },
+    { group: 'بلاغات', label: 'جملة للمدير', question: 'جملة للمدير' },
+    { group: 'بلاغات', label: 'تقييم ضعيف', question: 'تقييم ضعيف' }
   ],
   user: [
-    { label: 'بلاغاتي المفتوحة', question: 'كم بلاغ مفتوح عندي' },
-    { label: 'جهازي لا يعمل', question: 'جهازي لا يعمل' },
-    { label: 'الطابعة لا تطبع', question: 'الطابعة لا تطبع' }
+    { group: 'بلاغات', label: 'بلاغاتي المفتوحة', question: 'كم بلاغ مفتوح عندي' },
+    { group: 'بلاغات', label: 'بانتظار ردي', question: 'بانتظار ردي' },
+    { group: 'بلاغات', label: 'رجعت المشكلة', question: 'رجعت المشكلة' },
+    { group: 'بلاغات', label: 'تقييم بلاغ', question: 'تقييم بلاغ' },
+    { group: 'بلاغات', label: 'جهازي لا يعمل', question: 'جهازي لا يعمل' },
+    { group: 'بلاغات', label: 'الطابعة لا تطبع', question: 'الطابعة لا تطبع' }
   ]
 }
 
 const INTRO: Record<Persona, string> = {
-  admin: 'أنشئ حساباً، غيّر كلمة مرور، أو اسأل عن البلاغات والأعداد.',
-  technician: 'اسأل عن الطابور، أو من أين تبدأ الاستلام.',
-  department_head: 'تابع تعطل القسم وبلاغات موظفيك.',
-  user: 'صف العطل، أو اسأل عن بلاغاتك.'
+  admin: 'ينفّذ حسب صلاحيتك: الحسابات والبلاغات، أو اكتب طلبك.',
+  technician: 'استلم، أنجز، أو اسأل عن الطابور.',
+  department_head: 'تابع قسمك: التعطل، المتابعة، والتقييم.',
+  user: 'صف العطل، أو تابع بلاغاتك.'
 }
 
 const STEP_HINT: Record<string, string> = {
@@ -63,13 +84,16 @@ const STEP_HINT: Record<string, string> = {
   username: 'اسم المستخدم بالإنجليزية',
   number: 'رقم الموظف من 9 أرقام',
   password: 'كلمة المرور الجديدة',
-  resolution: 'اكتب ماذا تم إصلاحه'
+  resolution: 'اكتب ماذا تم إصلاحه',
+  body: 'نص الملاحظة الداخلية',
+  deptname: 'اسم القسم الجديد'
 }
 
 export function AiAssistant({
   supabase,
   mode = 'employee',
   role,
+  permissions,
   seed = '',
   compact = false,
   ticketId = '',
@@ -79,6 +103,7 @@ export function AiAssistant({
   supabase: SupabaseClient
   mode?: Mode
   role?: Persona
+  permissions?: string[] | null
   seed?: string
   compact?: boolean
   ticketId?: string
@@ -97,6 +122,8 @@ export function AiAssistant({
   const [draft, setDraft] = useState<Record<string, string> | null>(null)
   const [image, setImage] = useState<{ mediaType: string; data: string; name: string } | null>(null)
   const [pickQuery, setPickQuery] = useState('')
+  const [thread, setThread] = useState<{ q: string; a: string }[]>([])
+  const [lastQuestion, setLastQuestion] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -165,6 +192,9 @@ export function AiAssistant({
     const result = await response.json().catch(() => ({ error: 'تعذّر الوصول إلى المساعد الذكي.' }))
     setLoading(false)
     if (!response.ok) { setError(result.error || 'تعذّر الوصول إلى المساعد الذكي.'); return }
+    const visibleQuestion = draft?.step === 'password' ? 'كلمة المرور' : text
+    if (reply?.answer && lastQuestion) setThread((current) => [...current, { q: lastQuestion, a: reply.answer }].slice(-8))
+    if (visibleQuestion) setLastQuestion(visibleQuestion)
     if (draft?.step !== 'password') setAsked(text)
     setQuestion('')
     setPickQuery('')
@@ -228,7 +258,8 @@ export function AiAssistant({
   const helpReply = reply?.kind === 'help'
 
   const persona: Persona = role || (mode === 'admin' ? 'admin' : mode === 'technician' ? 'technician' : 'user')
-  const prompts = PROMPTS[persona]
+  const prompts = MENUS[persona].filter((chip) => persona !== 'admin' || !chip.need || permissions == null || permissions.includes(chip.need))
+  const groups = [...new Set(prompts.map((chip) => chip.group))]
   const intro = INTRO[persona]
   const step = draft?.step || ''
   const placeholder = compact ? 'اسأل عن هذا البلاغ' : (STEP_HINT[step] || 'اكتب سؤالك هنا')
@@ -288,6 +319,17 @@ export function AiAssistant({
       {status.configured === false && <p className="ai-gemini-meta">اقتراح الحل يحتاج مفتاح المساعد على الخادم. أسئلة التذاكر تعمل الآن.</p>}
       {mode === 'admin' && status.configured && !status.enabled && <p className="ai-gemini-meta">المساعد متوقف من الإعدادات.</p>}
       {error && <p className="ai-box-error">{error}</p>}
+
+      {!compact && thread.length > 0 && (
+        <div className="ai-thread">
+          {thread.map((turn, index) => (
+            <div key={`${turn.q}-${index}`}>
+              <p className="ai-thread-q">{turn.q}</p>
+              <p className="ai-thread-a">{turn.a}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {reply && (
         <div className="ai-box-reply">
@@ -351,14 +393,17 @@ export function AiAssistant({
         </div>
       )}
 
-      {!compact && !guiding && (
-        <div className="ai-gemini-prompts">
-          {reply && <p className="ai-gemini-again">خدمة أخرى</p>}
-          {prompts.map((prompt) => (
-            <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>
-          ))}
+      {!compact && !guiding && groups.map((group) => (
+        <div key={group} className="ai-gemini-group">
+          {reply && group === groups[0] && <p className="ai-gemini-again">خدمة أخرى</p>}
+          <p className="ai-gemini-group-label">{group}</p>
+          <div className="ai-gemini-prompts">
+            {prompts.filter((prompt) => prompt.group === group).map((prompt) => (
+              <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>
+            ))}
+          </div>
         </div>
-      )}
+      ))}
     </section>
   )
 }

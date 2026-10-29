@@ -729,7 +729,7 @@ export default function Page() {
           {activeTab === 'اسأل سند' && (
             <>
               <div className="ask-sanad">
-                <AiAssistant supabase={supabase} mode="admin" onTicketsChanged={() => { void fetchAllData(true) }} />
+                <AiAssistant supabase={supabase} mode="admin" permissions={myPermissions} onTicketsChanged={() => { void fetchAllData(true) }} />
               </div>
               {adminId && <AccountLog supabase={supabase} userId={adminId} />}
             </>
