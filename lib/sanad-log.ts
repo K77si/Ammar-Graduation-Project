@@ -18,6 +18,12 @@ export async function tagRecentTicketEvents(ticketId: string) {
     const stamped = await db.from('ticket_events').update({ note: next, source: 'سند' }).eq('id', row.id)
     if (stamped.error) await db.from('ticket_events').update({ note: next }).eq('id', row.id)
   }
+  const { data: notes } = await db.from('ticket_notes').select('id, body').eq('ticket_id', ticketId).gte('created_at', since)
+  for (const row of notes || []) {
+    const body = String(row.body || '')
+    if (body.startsWith('سند · ')) continue
+    await db.from('ticket_notes').update({ body: body ? `سند · ${body}` : 'سند · ملاحظة' }).eq('id', row.id)
+  }
 }
 
 export async function logSanadQuestion(input: {

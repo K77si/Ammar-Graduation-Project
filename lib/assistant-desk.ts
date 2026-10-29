@@ -276,13 +276,11 @@ function ticketQuestion(question: string) {
   return about && asks && !fault
 }
 
-function answerTickets(desk: Desk, actor: Actor, question: string): DeskReply {
+function rowsForQuestion(desk: Desk, actor: Actor, question: string) {
   const wanted = question.match(/(\d{3,})/)
   if (wanted) {
     const hit = ticketByNumber(desk, wanted[1])
-    if (!hit) return say(`ما لقيت بلاغاً رقمه ${wanted[1]} ضمن الظاهر لك.`, { kind: 'stats' })
-    if (hit.is_private && desk.role === 'department_head') return say('هذا البلاغ خاص ولا يظهر لرئيس القسم.', { kind: 'stats' })
-    return say(lineOf(hit, actor.id, desk.names), { kind: 'stats' })
+    return hit ? [hit] : []
   }
   let rows = desk.rows
   const mine = /عندي|لدي|لي\b|المسندة لي/.test(question) && !/عندنا/.test(question)
@@ -293,6 +291,19 @@ function answerTickets(desk: Desk, actor: Actor, question: string): DeskReply {
   if (/مفتوح|قيد/.test(question)) rows = rows.filter((row) => isActive(row.status))
   if (/بانتظار/.test(question)) rows = rows.filter((row) => row.status === 'بانتظار الموظف')
   if (/متأخر/.test(question)) rows = rows.filter(delayed)
+  return rows
+}
+
+function answerTickets(desk: Desk, actor: Actor, question: string): DeskReply {
+  const wanted = question.match(/(\d{3,})/)
+  if (wanted) {
+    const hit = ticketByNumber(desk, wanted[1])
+    if (!hit) return say(`ما لقيت بلاغاً رقمه ${wanted[1]} ضمن الظاهر لك.`, { kind: 'stats' })
+    if (hit.is_private && desk.role === 'department_head') return say('هذا البلاغ خاص ولا يظهر لرئيس القسم.', { kind: 'stats' })
+    return say(lineOf(hit, actor.id, desk.names), { kind: 'stats' })
+  }
+  const rows = rowsForQuestion(desk, actor, question)
+  const mine = /عندي|لدي|لي\b|المسندة لي/.test(question) && !/عندنا/.test(question)
   const scope = isTechnicianRole(desk.role) || desk.role === 'admin' ? (mine ? 'المسندة لك' : 'عند الدعم') : desk.role === 'department_head' ? `قسم ${departmentLabel(desk.department)}` : 'بلاغاتك'
   return say(listLines(rows, actor.id, desk.names, `${scope}${/اليوم/.test(question) ? ' اليوم' : ''}`), { kind: 'stats' })
 }
@@ -866,6 +877,15 @@ async function traceQuestion(actor: Actor, request: Request, desk: Desk, input: 
   await logSanadQuestion({ ticketId, actorName: desk.names.get(actor.id) || 'مستخدم', status, question })
 }
 
+async function recordListedQuestions(desk: Desk, actor: Actor, question: string) {
+  if (question.match(/(\d{3,})/)) return
+  const rows = rowsForQuestion(desk, actor, question).slice(0, 8)
+  const actorName = desk.names.get(actor.id) || 'مستخدم'
+  for (const row of rows) {
+    await logSanadQuestion({ ticketId: row.id, actorName, status: row.status, question })
+  }
+}
+
 export async function interpret(actor: Actor, request: Request, input: DeskInput): Promise<DeskOutcome> {
   const desk = await loadDesk(actor)
   const question = input.question.trim()
@@ -897,6 +917,7 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
         : employeeDesk(desk, actor, question)
   if (specific) return { type: 'reply', reply: specific }
   if (ticketQuestion(question) || /عطل جماعي|متأخر/.test(question)) {
+    await recordListedQuestions(desk, actor, question)
     return { type: 'reply', reply: answerTickets(desk, actor, question) }
   }
   const facts = answerTickets(desk, actor, role === 'department_head' || role === 'user' ? 'بلاغاتي المفتوحة' : 'وش عندنا تذاكر اليوم والمفتوحة').answer

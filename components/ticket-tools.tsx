@@ -2,7 +2,7 @@
 
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { statusLabel } from '@/lib/display'
-import { OriginBadge, originOf, stripOrigin } from '@/components/origin-badge'
+import { OriginBadge, OriginFilter, originOf, stripOrigin } from '@/components/origin-badge'
 import { AVAILABILITY, FAULT_TYPES, canReopen, isDelayed, type WorkflowTicket } from '@/lib/workflow'
 
 type TechnicianOption = { id: string; name: string; availability?: string | null; openCount: number }
@@ -153,7 +153,7 @@ function Tools({ ticket, actor, userId, technicians, events, notes, busy, onRun,
         <Fold title={`ملاحظات داخلية${notes.length ? ` (${notes.length})` : ''}`}>
           <p style={muted}>لا يراها الموظف.</p>
           {notes.map((item) => (
-            <p key={item.id} style={{ margin: '2px 0', fontSize: '12px' }}><b>{item.author_name}:</b> {item.body}</p>
+            <p key={item.id} style={{ margin: '2px 0', fontSize: '12px' }}><b>{item.author_name}:</b> <OriginBadge source={originOf(null, item.body)} /> {stripOrigin(item.body)}</p>
           ))}
           <Row>
             <input aria-label="ملاحظة داخلية" value={note} onChange={(event) => setNote(event.target.value)} placeholder="ملاحظة للفنيين ومدير النظام" style={field} />
@@ -166,8 +166,10 @@ function Tools({ ticket, actor, userId, technicians, events, notes, busy, onRun,
 }
 
 export function TicketHistory({ events }: { events: EventRow[] }) {
+  const [origin, setOrigin] = useState<'الكل' | 'يدوي' | 'سند'>('الكل')
+  const visible = events.filter((event) => origin === 'الكل' || originOf(event.source, event.note) === origin)
   const rows: Array<EventRow & { extra?: string }> = []
-  for (const event of events) {
+  for (const event of visible) {
     const previous = rows[rows.length - 1]
     const sameMoment = previous && previous.actor_name === event.actor_name && Math.abs(+new Date(previous.created_at) - +new Date(event.created_at)) < 5000
     if (sameMoment && event.from_status === event.to_status && event.note) {
@@ -176,17 +178,18 @@ export function TicketHistory({ events }: { events: EventRow[] }) {
     }
     rows.push({ ...event })
   }
-  if (rows.length === 0) return null
+  if (events.length === 0) return null
   return (
     <div style={{ marginTop: '1rem' }}>
-      <Fold title={`سجل البلاغ (${rows.length})`}>
-        {rows.map((event) => (
+      <Fold title={`سجل البلاغ (${events.length})`}>
+        <OriginFilter value={origin} onChange={setOrigin} />
+        {rows.length === 0 ? <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>لا توجد عمليات بهذا التصنيف.</p> : rows.map((event) => (
           <p key={event.id} style={{ margin: '2px 0', fontSize: '12px', color: '#64748b', lineHeight: 1.8 }}>
             <b>{event.actor_name}</b>
             <OriginBadge source={originOf(event.source, event.note)} />
             {event.from_status !== event.to_status ? `: من «${statusLabel(event.from_status)}» إلى «${statusLabel(event.to_status)}»` : ''}
             {stripOrigin(event.note) ? ` · ${stripOrigin(event.note)}` : ''}
-            {event.extra ? ` · ${event.extra}` : ''}
+            {event.extra ? ` · ${stripOrigin(event.extra)}` : ''}
             <span style={{ marginInlineStart: '6px', opacity: 0.7 }}>{new Date(event.created_at).toLocaleString('ar-SA-u-nu-latn', { dateStyle: 'short', timeStyle: 'short' })}</span>
           </p>
         ))}
