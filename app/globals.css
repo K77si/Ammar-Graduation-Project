@@ -756,31 +756,71 @@ details.fold[open] > summary::after {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 12px;
+  gap: 14px;
   color: var(--text);
+}
+
+.ai-gemini:not(.ai-gemini-compact) {
+  position: relative;
+  overflow: hidden;
+  padding: 22px;
+  border-radius: 28px;
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  background:
+    radial-gradient(640px 220px at 100% -30%, rgba(139, 92, 246, 0.2), transparent 58%),
+    radial-gradient(420px 180px at 0% 130%, rgba(99, 102, 241, 0.14), transparent 62%),
+    var(--surface);
+  box-shadow: 0 24px 50px rgba(76, 29, 149, 0.08);
 }
 
 .ai-gemini-compact {
   width: 100%;
   margin: 0 0 16px;
+  gap: 10px;
+}
+
+.ai-gemini-intro {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ai-gemini-intro p {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.6;
+}
+
+.ai-gemini-mark {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #a78bfa, #7c3aed 45%, #4f46e5);
+  box-shadow: 0 12px 24px rgba(124, 58, 237, 0.35);
 }
 
 .ai-gemini-bar {
   width: 100%;
-  min-height: 56px;
+  min-height: 64px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px;
-  border-radius: 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
+  border-radius: 20px;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(120deg, #c4b5fd, #8b5cf6, #6366f1) border-box;
+  border: 1.5px solid transparent;
+  box-shadow: 0 14px 34px rgba(124, 58, 237, 0.12);
 }
 
 .ai-gemini-bar:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.16);
+  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.16), 0 16px 36px rgba(124, 58, 237, 0.18);
 }
 
 .ai-gemini-bar input {
@@ -800,9 +840,9 @@ details.fold[open] > summary::after {
 
 .ai-gemini-plus,
 .ai-gemini-send {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
   display: grid;
   place-items: center;
   flex: 0 0 auto;
@@ -810,16 +850,49 @@ details.fold[open] > summary::after {
 }
 
 .ai-gemini-plus {
-  color: var(--text);
-  background: var(--field);
-  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+}
+
+.ai-gemini-plus:hover {
+  color: var(--accent);
+  background: var(--accent-light);
 }
 
 .ai-gemini-send {
   border: 0;
-  background: var(--accent);
+  background: linear-gradient(145deg, #a78bfa, #7c3aed 55%, #4f46e5);
   color: #fff;
-  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.28);
+  box-shadow: 0 10px 20px rgba(124, 58, 237, 0.38);
+}
+
+.ai-gemini-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-gemini-prompts button {
+  background: rgba(139, 92, 246, 0.08);
+  color: var(--text);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ai-gemini-prompts button:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.ai-gemini-prompts button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .ai-gemini-send:disabled {
@@ -838,6 +911,14 @@ details.fold[open] > summary::after {
 .ai-gemini .ai-box-reply,
 .ai-gemini .ai-box-error {
   width: 100%;
+}
+
+.ai-gemini .ai-box-reply {
+  border-radius: 18px;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  background:
+    linear-gradient(180deg, rgba(139, 92, 246, 0.1), transparent 46%),
+    var(--surface);
 }
 
 .ai-box {

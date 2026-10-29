@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ArrowUp, Loader2, Plus } from 'lucide-react'
 import { FAULT_TYPES, ticketAction } from '@/lib/workflow'
 import { formatTicketNo } from '@/lib/display'
+import { SanadMark } from '@/components/sanad-mark'
 
 type Choice = { id: string; label: string }
 type Confirm = { action: string; label: string; payload: Record<string, string> }
@@ -182,10 +183,26 @@ export function AiAssistant({
   const helpReply = reply?.kind === 'help'
   const canSend = question.trim().length >= 5 || Boolean(image) || Boolean(draft)
 
-  const placeholder = compact ? 'اسأل عن هذا البلاغ' : 'اسأل سند'
+  const placeholder = compact ? 'اسأل عن هذا البلاغ' : 'اكتب سؤالك هنا'
+  const prompts = mode === 'admin'
+    ? ['تقرير اليوم', 'كم بلاغ مفتوح', 'عدد الموظفين']
+    : mode === 'technician'
+      ? ['كم بلاغ مفتوح', 'أبدأ بأي بلاغ', 'تسليم الوردية']
+      : ['كم بلاغ مفتوح عندي', 'جهازي لا يعمل', 'الطابعة لا تطبع']
+  const intro = mode === 'admin'
+    ? 'اسأل عن الأعداد والبلاغات، أو اطلب إنشاء حساب.'
+    : mode === 'technician'
+      ? 'اسأل عن الطابور، أو من أين تبدأ.'
+      : 'صف العطل، أو اسأل عن بلاغاتك.'
 
   return (
     <section className={`ai-gemini ${compact ? 'ai-gemini-compact' : ''}`}>
+      {!compact && (
+        <div className="ai-gemini-intro">
+          <span className="ai-gemini-mark" aria-hidden="true"><SanadMark size={26} /></span>
+          <p>{intro}</p>
+        </div>
+      )}
       <form onSubmit={ask} className="ai-gemini-bar">
         <label className="ai-gemini-plus" aria-label="إرفاق صورة">
           <Plus size={18} />
@@ -218,6 +235,14 @@ export function AiAssistant({
           {loading ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} />}
         </button>
       </form>
+
+      {!compact && !reply && !draft && (
+        <div className="ai-gemini-prompts">
+          {prompts.map((prompt) => (
+            <button key={prompt} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt })}>{prompt}</button>
+          ))}
+        </div>
+      )}
 
       {image && <p className="ai-gemini-meta">مرفقة: {image.name}</p>}
       {status.configured === false && <p className="ai-gemini-meta">اقتراح الحل يحتاج مفتاح المساعد على الخادم. أسئلة التذاكر تعمل الآن.</p>}
