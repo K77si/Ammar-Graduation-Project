@@ -751,46 +751,36 @@ details.fold[open] > summary::after {
 }
 
 .ai-gemini {
-  width: min(760px, 100%);
-  margin: 8px auto 28px;
+  width: 100%;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
+  align-items: stretch;
+  gap: 12px;
   color: var(--text);
 }
 
 .ai-gemini-compact {
   width: 100%;
   margin: 0 0 16px;
-  align-items: stretch;
-}
-
-.ai-gemini-title {
-  margin: 8px 0 0;
-  font-size: 32px;
-  font-weight: 500;
-  letter-spacing: -0.03em;
-  text-align: center;
-}
-
-.ai-gemini-sub {
-  margin: -6px 0 4px;
-  color: var(--text-muted);
-  font-size: 14px;
-  text-align: center;
 }
 
 .ai-gemini-bar {
   width: 100%;
-  min-height: 58px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px 6px 10px;
-  border-radius: 999px;
-  background: #1c1f26;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.ai-gemini-bar:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.16);
 }
 
 .ai-gemini-bar input {
@@ -799,20 +789,20 @@ details.fold[open] > summary::after {
   border: 0;
   outline: none;
   background: transparent;
-  color: #f8fafc;
-  font-size: 16px;
+  color: var(--text);
+  font-size: 15px;
   padding: 8px 4px;
 }
 
 .ai-gemini-bar input::placeholder {
-  color: #cbd5e1;
+  color: var(--text-muted);
 }
 
 .ai-gemini-plus,
 .ai-gemini-send {
   width: 40px;
   height: 40px;
-  border-radius: 999px;
+  border-radius: 12px;
   display: grid;
   place-items: center;
   flex: 0 0 auto;
@@ -820,26 +810,29 @@ details.fold[open] > summary::after {
 }
 
 .ai-gemini-plus {
-  color: #e2e8f0;
-  background: transparent;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--border);
 }
 
 .ai-gemini-send {
   border: 0;
-  background: #f8fafc;
-  color: #111827;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.28);
 }
 
 .ai-gemini-send:disabled {
-  opacity: 0.35;
+  opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .ai-gemini-meta {
   margin: 0;
   font-size: 12px;
   color: var(--text-muted);
-  text-align: center;
+  text-align: start;
 }
 
 .ai-gemini .ai-box-reply,
@@ -1359,8 +1352,8 @@ details.fold[open] > summary::after {
 }
 
 .ask-sanad {
-  width: min(760px, 100%);
-  margin: 12px auto 0;
+  width: 100%;
+  margin: 0;
 }
 
 .ask-sanad .ai-gemini {

@@ -186,8 +186,6 @@ export function AiAssistant({
 
   return (
     <section className={`ai-gemini ${compact ? 'ai-gemini-compact' : ''}`}>
-      {!compact && <h2 className="ai-gemini-title">من أين نبدأ؟</h2>}
-
       <form onSubmit={ask} className="ai-gemini-bar">
         <label className="ai-gemini-plus" aria-label="إرفاق صورة">
           <Plus size={18} />
