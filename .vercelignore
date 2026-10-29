@@ -5,3 +5,4 @@ node_modules
 *.txt
 supabase
 report-week2
+tmp-*
