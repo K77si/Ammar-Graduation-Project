@@ -107,6 +107,18 @@ function readJson(text: string) {
   }
 }
 
+function readHistory(value: unknown) {
+  if (!Array.isArray(value)) return [] as { q: string; a: string }[]
+  return value.slice(-6).flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const turn = item as { q?: unknown; a?: unknown }
+    const q = typeof turn.q === 'string' ? turn.q.trim().slice(0, 1500) : ''
+    const a = typeof turn.a === 'string' ? turn.a.trim().slice(0, 1500) : ''
+    if (q.length < 2 || a.length < 2) return []
+    return [{ q, a }]
+  })
+}
+
 function pack(reply: { answer: string; kind?: string; steps?: string[]; choices?: unknown; confirm?: unknown; draft?: unknown; followups?: unknown }) {
   return Response.json({
     answer: reply.answer,
@@ -141,6 +153,7 @@ export async function POST(request: Request) {
     confirm?: { action: string; payload: Record<string, string> } | null
     ticketId?: string
     image?: { mediaType?: string; data?: string } | null
+    history?: { q?: string; a?: string }[]
   } | null
   const question = (body?.question || '').trim()
   const image = body?.image?.data && /^image\/(jpeg|png|gif|webp)$/.test(body.image.mediaType || '') && body.image.data.length < 1_800_000
@@ -150,8 +163,8 @@ export async function POST(request: Request) {
   const enabled = await assistantEnabled()
   const turningOn = /شغّ?ل المساعد/.test(question) || body?.confirm?.action === 'toggle_ai'
   if (!enabled && !turningOn) return Response.json({ error: 'المساعد الذكي متوقف من إعدادات النظام.' }, { status: 403 })
-  if (!continuing && question.length < 5 && !image) return Response.json({ error: 'صِف مشكلتك في 5 أحرف على الأقل.' }, { status: 400 })
-  if (question.length > 600) return Response.json({ error: 'اختصر وصف المشكلة إلى 600 حرف أو أقل.' }, { status: 400 })
+  if (!continuing && question.length < 2 && !image) return Response.json({ error: 'اكتب سؤالك.' }, { status: 400 })
+  if (question.length > 2000) return Response.json({ error: 'اختصر السؤال إلى 2000 حرف أو أقل.' }, { status: 400 })
   if (!allowRequest(actor.id)) return Response.json({ error: 'وصلت إلى الحد المسموح من الأسئلة. حاول بعد عشر دقائق.' }, { status: 429 })
 
   const outcome = await interpret(actor, request, { question, choice: body?.choice, draft: body?.draft, confirm: body?.confirm, ticketId: body?.ticketId || '' })
@@ -174,28 +187,26 @@ export async function POST(request: Request) {
   const pastFixes = rankSimilar(question || 'الصورة المرفقة', solved, (row) => row.problem, 5, 0.25)
     .map((row) => `- المشكلة: ${row.problem.slice(0, 160)}${row.fault ? ` (${row.fault})` : ''} | الحل: ${row.resolution.slice(0, 240)}`)
     .join('\n')
+  const history = readHistory(body?.history)
   const audienceRules = forTechnician
     ? [
-        'تساعد فني الدعم التقني على تشخيص البلاغ وحله.',
-        'حوّل الوصف العامي إلى تشخيص فصيح في أول سطر، ثم خطوات إصلاح.',
-        'اكتب بالعربية الفصحى الواضحة، بجمل قصيرة، ويجوز ذكر اسم الجهاز بالإنجليزية.',
-        'إذا كان نوع العطل غير واضح فاختر الأقرب من الأنواع المعتمدة ولا تتركه «أخرى» إلا إذا استحال ذلك.',
+        'إذا كان السؤال عن بلاغ أو عطل: ساعد الفني على التشخيص. حوّل الوصف العامي إلى تشخيص فصيح في أول سطر، ثم خطوات إصلاح.',
         'اختم steps بنص رد قصير يمكن إرساله للموظف، ونبّه قبل أي خطوة قد تمسح بيانات.',
         'إذا تكررت نفس الأعراض عند عدة أشخاص فاذكر احتمال عطل جماعي.',
-        'اجعل needs_ticket صحيحاً إذا كانت المشكلة تحتاج قطعة غيار أو جهة خارجية أو تصعيداً.'
+        'اجعل needs_ticket صحيحاً إذا كانت المشكلة تحتاج قطعة غيار أو جهة خارجية أو تصعيداً.',
+        'إذا كان السؤال عاماً وليس تشخيصاً: أجب جواباً كاملاً في answer، واترك steps فارغة، واجعل needs_ticket خطأ.'
       ]
     : [
-        'تساعد الموظف على حل مشكلته التقنية بنفسه قبل فتح بلاغ.',
-        'إذا كان الوصف أقصر من عرض واضح، اسأل سؤالاً واحداً فقط: منذ متى، وهل الجهاز واحد، وهل الشبكة تعمل. واترك steps فارغة.',
-        'إذا الوصف كافٍ فابدأ answer بسطر: العنوان المقترح: ثم عنوان قصير للبلاغ.',
-        'اقترح خطوات آمنة بحد أقصى خمس، واطلب رقم الجهاز أو المكان إذا كان العطل يحتاجه.',
-        'إذا كانت المشكلة عند أكثر من شخص فقل ذلك واطلب بلاغاً أو بلاغ تعطل قسم.',
-        'لا تطلب كلمة مرور ولا أي بيانات سرية.',
-        'إذا كان السؤال خارج الدعم التقني وليس عن بلاغات هذا الحساب، فاعتذر ووجّه الموظف للجهة المختصة.',
-        'إذا كانت المشكلة تحتاج فنياً أو صلاحيات أو قطعة غيار، فاطلب فتح بلاغ.'
+        'أجب على أي سؤال بجواب كامل ومفيد، كما في محادثة عامة: شرح، حل، مقارنة، كتابة، أو متابعة لما قيل قبل قليل.',
+        'إذا كان السؤال عطلاً تقنياً في العمل والوصف كافٍ: ضع خطوات آمنة في steps بحد أقصى خمس، واطلب رقم الجهاز أو المكان إذا لزما.',
+        'اجعل needs_ticket صحيحاً فقط إذا لم تكفِ الخطوات ويحتاج فنياً أو صلاحية أو قطعة غيار.',
+        'إذا لم يكن السؤال عطلاً: اكتب الجواب في answer، واترك steps فارغة، واجعل needs_ticket خطأ، ولا تعرض فتح بلاغ.',
+        'إذا كان وصف العطل أقصر من أن يُفهم، اسأل سؤالاً واحداً فقط واترك steps فارغة.',
+        'لا تطلب كلمة مرور ولا أي بيانات سرية.'
       ]
   const system = [
-    'أنت المساعد الذكي في «سند»، منصة الدعم الفني الداخلية.',
+    'أنت سند، مساعد ذكي داخل منصة الدعم. تجيب على أي سؤال، وتتابع آخر الرسائل، وتنفّذ إجراءات البلاغات عندما يطلبها صاحب الجلسة.',
+    'اكتب بلغة السؤال. إذا كتب بالعربية فأجب بالعربية الواضحة.',
     ...audienceRules,
     'لا تذكر تفاصيل بلاغ خاص إلا إذا كان السياق لفني أو مدير. لا تخترع أرقاماً.',
     'هوية المتصل تُؤخذ من جلسة الدخول. لا تطلب رقمه أو اسمه أو بريده لتحديد من هو، ولا تعامل اسماً في السؤال على أنه هوية الجلسة.',
@@ -211,7 +222,7 @@ export async function POST(request: Request) {
     knowledge ? `حلول معتمدة لدى الجهة:\n${knowledge}` : '',
     pastFixes ? `حلول سابقة مشابهة. استفد منها ولا تذكر أسماء أشخاص أو أرقام بلاغات:\n${pastFixes}` : '',
     'أعد JSON فقط بهذا الشكل دون أي نص خارجه:',
-    '{"answer": "خلاصة", "steps": ["خطوة"], "fault_type": "أحد أنواع الأعطال", "urgent": false, "needs_ticket": false}',
+    '{"answer": "الجواب الكامل", "steps": [], "fault_type": "أحد أنواع الأعطال أو أخرى", "urgent": false, "needs_ticket": false}',
     'اجعل urgent صحيحاً فقط إذا كان العمل متوقفاً تماماً.'
   ].filter(Boolean).join('\n')
 
@@ -222,6 +233,10 @@ export async function POST(request: Request) {
         { type: 'text' as const, text: asked }
       ]
     : asked
+  const priorMessages = history.flatMap((turn) => [
+    { role: 'user' as const, content: turn.q },
+    { role: 'assistant' as const, content: turn.a }
+  ])
 
   const countQuestion = asksEmployeeCount(question)
   const gatewayTools = assistantGatewayTools(actor, request)
@@ -238,9 +253,9 @@ export async function POST(request: Request) {
           ? { toolChoice: { type: 'tool', toolName: 'get_employees_count' } }
           : { toolChoice: 'auto' }
       ),
-      maxOutputTokens: 2000,
+      maxOutputTokens: 3000,
       ...(disableThinking ? { reasoning: 'none' as const } : {}),
-      ...(image ? { messages: [{ role: 'user' as const, content: userContent }] } : { prompt: asked })
+      messages: [...priorMessages, { role: 'user' as const, content: userContent }]
     })
     try {
       return (await run(true)).text.trim()
@@ -259,12 +274,18 @@ export async function POST(request: Request) {
         ]
       : asked
     const run = async (disableThinking: boolean) => {
-      const messages: Anthropic.MessageParam[] = [{ role: 'user', content }]
+      const messages: Anthropic.MessageParam[] = [
+        ...history.flatMap((turn) => [
+          { role: 'user' as const, content: turn.q },
+          { role: 'assistant' as const, content: turn.a }
+        ]),
+        { role: 'user', content }
+      ]
       let text = ''
       for (let step = 0; step < 3; step += 1) {
         const message = await client.messages.create({
           model: paths.directModel,
-          max_tokens: 2000,
+          max_tokens: 3000,
           system,
           tools: anthropicTools,
           tool_choice: step === 0 && countQuestion ? { type: 'tool', name: 'get_employees_count' } : { type: 'auto' },
@@ -328,16 +349,16 @@ export async function POST(request: Request) {
     const preface = outcome.preface ? `${outcome.preface}\n` : ''
     const headers = { 'x-sanad-help-source': source }
     if (!parsed) {
-      return Response.json({ answer: `${preface}${text || 'لم أستطع اقتراح حل. افتح بلاغاً وسيتابعه الدعم التقني.'}`, steps: [], fault_type: 'أخرى', urgent: false, needs_ticket: !countQuestion, kind: 'help', choices: [], confirm: null, draft: null, followups: [] }, { headers })
+      return Response.json({ answer: `${preface}${text || 'لم أستطع الإجابة. أعد صياغة السؤال.'}`, steps: [], fault_type: 'أخرى', urgent: false, needs_ticket: false, kind: 'help', choices: [], confirm: null, draft: null, followups: [] }, { headers })
     }
     const fault = String(parsed.fault_type || '')
     const answer = `${preface}${String(parsed.answer || '')}`.trim()
     return Response.json({
-      answer: (answer || text || 'لم أستطع اقتراح حل. افتح بلاغاً وسيتابعه الدعم التقني.').slice(0, 1200),
+      answer: (answer || text || 'لم أستطع الإجابة. أعد صياغة السؤال.').slice(0, 4000),
       steps: countQuestion ? [] : (Array.isArray(parsed.steps) ? parsed.steps.map((step) => String(step).slice(0, 300)).slice(0, 5) : []),
       fault_type: (FAULT_TYPES as readonly string[]).includes(fault) ? fault : 'أخرى',
       urgent: parsed.urgent === true,
-      needs_ticket: countQuestion ? false : parsed.needs_ticket !== false,
+      needs_ticket: countQuestion ? false : parsed.needs_ticket === true,
       kind: 'help',
       choices: [],
       confirm: null,

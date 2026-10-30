@@ -95,7 +95,7 @@ const INTRO: Record<Persona, string> = {
   admin: 'ينفّذ حسب صلاحيتك: الحسابات والبلاغات، أو اكتب طلبك.',
   technician: 'اكتب طلبك بلغتك. ينفّذ ما تسمح به صلاحية الفني، ويطلب تأكيدك قبل أي تغيير.',
   department_head: 'تابع قسمك: التعطل، المتابعة، والتقييم.',
-  user: 'صف العطل، أو تابع بلاغاتك.'
+  user: 'اسأل عن أي شيء، أو صف العطل وتابع بلاغاتك.'
 }
 
 const STEP_HINT: Record<string, string> = {
@@ -239,7 +239,7 @@ export function AiAssistant({
   const send = async (payload: { question?: string; choice?: string; confirm?: Confirm | null } = {}) => {
     const text = (payload.question ?? question).trim()
     if (loading) return
-    if (!payload.choice && !payload.confirm && text.length < 5 && !image && !draft) return
+    if (!payload.choice && !payload.confirm && text.length < 2 && !image && !draft) return
     setLoading(true)
     setError('')
     setSolved(false)
@@ -250,6 +250,10 @@ export function AiAssistant({
       const refreshed = await supabase.auth.refreshSession()
       return refreshed.data.session?.access_token || ''
     }
+    const history = [
+      ...thread,
+      ...(lastQuestion && reply?.answer ? [{ q: lastQuestion, a: reply.answer }] : [])
+    ].slice(-6).map((turn) => ({ q: turn.q.slice(0, 1500), a: turn.a.slice(0, 1500) }))
     const post = (access: string) => fetch('/api/assistant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${access}` },
@@ -260,6 +264,7 @@ export function AiAssistant({
         draft,
         confirm: payload.confirm || null,
         ticketId,
+        history: payload.choice || payload.confirm ? [] : history,
         image: image ? { mediaType: image.mediaType, data: image.data } : null
       })
     })
@@ -360,7 +365,7 @@ export function AiAssistant({
     ? 'نص الرد للموظف'
     : step === 'body' && draft?.intent === 'info'
       ? 'المعلومة المطلوبة من الموظف'
-      : (STEP_HINT[step] || (compact ? 'اكتب لسند الإجراء، مثل: اطلب رقم الجهاز' : 'اكتب طلبك بلغتك'))
+      : (STEP_HINT[step] || (compact ? 'اكتب لسند الإجراء، مثل: اطلب رقم الجهاز' : 'اسأل عن أي شيء'))
   const secretStep = step === 'password'
   const choices = reply?.choices || []
   const listed = choices.filter((choice) => choice.id !== 'cancel')
@@ -369,7 +374,7 @@ export function AiAssistant({
   const picked = listed.filter((choice) => choice.label.includes(pickQuery.trim()))
   const guiding = Boolean(draft || choices.length || reply?.confirm)
   const shownGroups = compact ? groups.filter((group) => group === 'على البلاغ') : groups
-  const canSend = STEP_HINT[step] ? question.trim().length >= 1 : question.trim().length >= 5 || Boolean(image)
+  const canSend = STEP_HINT[step] ? question.trim().length >= 1 : question.trim().length >= 2 || Boolean(image)
 
   return (
     <section className={`ai-gemini ${compact ? 'ai-gemini-compact' : ''}`}>
@@ -413,7 +418,7 @@ export function AiAssistant({
           onChange={(event) => setQuestion(event.target.value)}
           disabled={!ready}
           placeholder={placeholder}
-          maxLength={600}
+          maxLength={2000}
           type={secretStep ? 'password' : 'text'}
           autoComplete={secretStep ? 'new-password' : 'off'}
         />
@@ -484,7 +489,7 @@ export function AiAssistant({
               ))}
             </div>
           ) : null}
-          {mode === 'employee' && helpReply && (filedNo ? (
+          {mode === 'employee' && helpReply && (reply.needs_ticket || reply.steps.length > 0) && (filedNo ? (
             <p className="ai-box-done">تم رفع البلاغ {filedNo} وإحالته إلى الدعم التقني.</p>
           ) : solved ? (
             <p className="ai-box-done">ممتاز، يسعدنا أن المشكلة حُلّت.</p>
@@ -499,7 +504,7 @@ export function AiAssistant({
               )}
             </div>
           ))}
-          {mode === 'employee' && helpReply && reply.urgent && !solved && !filedNo && <p className="ai-box-note">يبدو أن العمل متوقف، وسيُرفع البلاغ بدرجة عاجل.</p>}
+          {mode === 'employee' && helpReply && (reply.needs_ticket || reply.steps.length > 0) && reply.urgent && !solved && !filedNo && <p className="ai-box-note">يبدو أن العمل متوقف، وسيُرفع البلاغ بدرجة عاجل.</p>}
           {mode === 'technician' && helpReply && reply.needs_ticket && <p className="ai-box-note">قد يحتاج تصعيداً.</p>}
         </div>
       )}
