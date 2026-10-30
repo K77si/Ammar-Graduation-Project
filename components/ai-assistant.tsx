@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ArrowUp, Loader2, Plus } from 'lucide-react'
 import { FAULT_TYPES, ticketAction } from '@/lib/workflow'
@@ -68,12 +68,12 @@ const MENUS: Record<Persona, Chip[]> = {
     { group: 'على البلاغ', label: 'نوع العطل', question: 'غيّر نوع العطل' }
   ],
   department_head: [
-    { group: 'بلاغات', label: 'تعطل القسم', question: 'تعطل القسم' },
-    { group: 'بلاغات', label: 'بلاغات الموظفين', question: 'بلاغات موظفين قسمي' },
-    { group: 'بلاغات', label: 'مقارنة الأسبوع', question: 'بلاغات الأسبوع' },
-    { group: 'بلاغات', label: 'مين المتابع', question: 'من المتابع' },
-    { group: 'بلاغات', label: 'جملة للمدير', question: 'جملة للمدير' },
-    { group: 'بلاغات', label: 'تقييم ضعيف', question: 'تقييم ضعيف' }
+    { group: 'قسمك', label: 'تعطل القسم', question: 'تعطل القسم' },
+    { group: 'قسمك', label: 'بلاغات الموظفين', question: 'بلاغات موظفين قسمي' },
+    { group: 'المتابعة', label: 'مين المتابع', question: 'من المتابع' },
+    { group: 'المتابعة', label: 'مقارنة الأسبوع', question: 'بلاغات الأسبوع' },
+    { group: 'تقرير القسم', label: 'جملة للمدير', question: 'جملة للمدير' },
+    { group: 'تقرير القسم', label: 'تقييم ضعيف', question: 'تقييم ضعيف' }
   ],
   user: [
     { group: 'صف العطل', label: 'جهازي لا يعمل', question: 'جهازي لا يعمل' },
@@ -88,15 +88,20 @@ const MENUS: Record<Persona, Chip[]> = {
 const GROUP_HINT: Record<string, string> = {
   'صف العطل': 'يشرح الخطوات. إذا ما انحلت، ترفع بلاغاً.',
   'تابع بلاغاتك': 'أرقام بلاغاتك، واللي الفني ينتظر ردك فيها.',
-  'بعد الإنجاز': 'قيّم البلاغ، أو أعد فتحه إذا رجعت المشكلة.'
+  'بعد الإنجاز': 'قيّم البلاغ، أو أعد فتحه إذا رجعت المشكلة.',
+  'قسمك': 'تعطل قسمك وبلاغات موظفيك. ما يشوف أقسام غيرك.',
+  'المتابعة': 'مين يشتغل على بلاغات قسمك، وهذا الأسبوع مقارنة بالسابق.',
+  'تقرير القسم': 'جملة للمدير، والتقييمات الضعيفة داخل قسمك.'
 }
 
 const INTRO: Record<Persona, string> = {
   admin: 'ينفّذ حسب صلاحيتك: الحسابات والبلاغات، أو اكتب طلبك.',
   technician: 'اكتب طلبك بلغتك. ينفّذ ما تسمح به صلاحية الفني، ويطلب تأكيدك قبل أي تغيير.',
-  department_head: 'تابع قسمك: التعطل، المتابعة، والتقييم.',
+  department_head: 'أنت مسؤول عن قسمك فقط: التعطل، بلاغات الموظفين، والمتابعة.',
   user: 'اسأل عن أي شيء، أو صف العطل وتابع بلاغاتك.'
 }
+
+const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 const STEP_HINT: Record<string, string> = {
   name: 'الاسم الثلاثي',
@@ -147,6 +152,7 @@ export function AiAssistant({
   const [thread, setThread] = useState<Turn[]>([])
   const [lastQuestion, setLastQuestion] = useState('')
   const restored = useRef(false)
+  const transcriptRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (compact) {
@@ -189,6 +195,13 @@ export function AiAssistant({
     })
     return () => { alive = false }
   }, [thread, lastQuestion, reply, supabase, mode, compact])
+
+  useIsoLayoutEffect(() => {
+    if (compact) return
+    const node = transcriptRef.current
+    if (!node) return
+    node.scrollTop = node.scrollHeight
+  }, [thread, reply, lastQuestion, loading, compact])
 
   useEffect(() => {
     let alive = true
@@ -376,9 +389,130 @@ export function AiAssistant({
   const shownGroups = compact ? groups.filter((group) => group === 'على البلاغ') : groups
   const canSend = STEP_HINT[step] ? question.trim().length >= 1 : question.trim().length >= 2 || Boolean(image)
 
-  return (
-    <section className={`ai-gemini ${compact ? 'ai-gemini-compact' : ''}`}>
-      {compact ? (
+  const replyDetails = reply ? (
+    <>
+      <p>{reply.answer}</p>
+      {reply.steps.length > 0 && (
+        <ol>
+          {reply.steps.map((item, index) => <li key={index}>{item}</li>)}
+        </ol>
+      )}
+      {(choices.length || reply.confirm || reply.followups?.length) ? (
+        <div className="ai-box-actions">
+          {reply.confirm && (
+            <button type="button" className="ai-primary" disabled={loading} onClick={() => void send({ question: 'تأكيد', confirm: reply.confirm })}>{reply.confirm.label}</button>
+          )}
+          {usePicker ? (
+            <div className="ai-picker">
+              <input
+                value={pickQuery}
+                onChange={(event) => setPickQuery(event.target.value)}
+                placeholder="ابحث بالاسم أو رقم الموظف"
+                aria-label="بحث في الحسابات"
+              />
+              <div className="ai-picker-list">
+                {picked.length === 0 ? <p>لا يوجد حساب بهذا البحث.</p> : picked.map((choice) => (
+                  <button key={choice.id} type="button" disabled={loading} onClick={() => void send({ question: choice.label, choice: choice.id })}>{choice.label}</button>
+                ))}
+              </div>
+            </div>
+          ) : listed.map((choice) => (
+            <button key={choice.id} type="button" className="ai-ghost" disabled={loading} onClick={() => void send({ question: choice.label, choice: choice.id })}>{choice.label}</button>
+          ))}
+          {cancelChoice && (
+            <button type="button" className="ai-ghost" disabled={loading} onClick={() => void send({ question: cancelChoice.label, choice: cancelChoice.id })}>{cancelChoice.label}</button>
+          )}
+          {reply.followups?.map((item) => (
+            <button key={item.ticketId} type="button" className="ai-primary" disabled={loading} onClick={async () => {
+              const result = await ticketAction(supabase, item.ticketId, 'reopen', { reason: 'عادت المشكلة', via: 'sanad' })
+              if (result.error) setError(result.error)
+              else { setReply({ ...reply, answer: `${reply.answer}\nتمت إعادة فتح البلاغ.` , followups: [] }); onTicketsChanged?.() }
+            }}>{item.label}</button>
+          ))}
+        </div>
+      ) : null}
+      {mode === 'employee' && helpReply && (reply.needs_ticket || reply.steps.length > 0) && (filedNo ? (
+        <p className="ai-box-done">تم رفع البلاغ {filedNo} وإحالته إلى الدعم التقني.</p>
+      ) : solved ? (
+        <p className="ai-box-done">ممتاز، يسعدنا أن المشكلة حُلّت.</p>
+      ) : (
+        <div className="ai-box-actions">
+          <button type="button" className="ai-ghost" onClick={() => { setSolved(true); setQuestion('') }}>حُلّت المشكلة</button>
+          <button type="button" className="ai-primary" disabled={filing} onClick={raiseTicket}>
+            {filing ? 'جارٍ الرفع...' : 'ارفع البلاغ للدعم'}
+          </button>
+          {onOpenTicket && (
+            <button type="button" className="ai-ghost" onClick={() => onOpenTicket(asked, reply.fault_type)}>أضف تفاصيل قبل الرفع</button>
+          )}
+        </div>
+      ))}
+      {mode === 'employee' && helpReply && (reply.needs_ticket || reply.steps.length > 0) && reply.urgent && !solved && !filedNo && <p className="ai-box-note">يبدو أن العمل متوقف، وسيُرفع البلاغ بدرجة عاجل.</p>}
+      {mode === 'technician' && helpReply && reply.needs_ticket && <p className="ai-box-note">قد يحتاج تصعيداً.</p>}
+    </>
+  ) : null
+
+  const composer = (
+    <form onSubmit={ask} className="ai-gemini-bar">
+      <label className="ai-gemini-plus" aria-label="إرفاق صورة">
+        <Plus size={18} />
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (!file || file.size > 1_200_000) { setError(file ? 'الصورة أكبر من 1.2 ميغابايت.' : ''); return }
+            const reader = new FileReader()
+            reader.onload = () => {
+              const value = String(reader.result || '')
+              const data = value.slice(value.indexOf(',') + 1)
+              setImage({ mediaType: file.type, data, name: file.name })
+            }
+            reader.readAsDataURL(file)
+          }}
+        />
+      </label>
+      <input
+        value={question}
+        onChange={(event) => setQuestion(event.target.value)}
+        disabled={!ready}
+        placeholder={placeholder}
+        maxLength={2000}
+        type={secretStep ? 'password' : 'text'}
+        autoComplete={secretStep ? 'new-password' : 'off'}
+      />
+      <button type="submit" className="ai-gemini-send" disabled={!ready || loading || !canSend} aria-label="اسأل">
+        {loading ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} />}
+      </button>
+    </form>
+  )
+
+  const notices = (
+    <>
+      {image && <p className="ai-gemini-meta">مرفقة: {image.name}</p>}
+      {status.configured === false && <p className="ai-gemini-meta">اقتراح الحل يحتاج مفتاح المساعد على الخادم. أسئلة التذاكر تعمل الآن.</p>}
+      {mode === 'admin' && status.configured && !status.enabled && <p className="ai-gemini-meta">المساعد متوقف من الإعدادات.</p>}
+      {error && <p className="ai-box-error">{error}</p>}
+    </>
+  )
+
+  const shortcuts = !guiding && shownGroups.map((group) => (
+    <div key={group} className="ai-gemini-group">
+      {reply && group === shownGroups[0] && <p className="ai-gemini-again">أو اختر خطوة</p>}
+      <p className="ai-gemini-group-label">{compact ? 'أو اختر إجراءً' : group}</p>
+      {!compact && GROUP_HINT[group] && <p className="ai-gemini-hint">{GROUP_HINT[group]}</p>}
+      <div className="ai-gemini-prompts">
+        {prompts.filter((prompt) => prompt.group === group).map((prompt) => (
+          <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>
+        ))}
+      </div>
+    </div>
+  ))
+
+  if (compact) {
+    return (
+      <section className="ai-gemini ai-gemini-compact">
         <div className="ai-ticket-head">
           <span className="ai-gemini-mark" aria-hidden="true"><SanadMark size={20} /></span>
           <div>
@@ -386,141 +520,51 @@ export function AiAssistant({
             <p>هذا الصندوق لسند، مو للرد على الموظف. تكتب الإجراء بكلامك على هذا البلاغ، يتأكد منك، ثم ينفّذه ويسجّله في السجل.</p>
           </div>
         </div>
-      ) : (
-        <div className="ai-gemini-intro">
-          <span className="ai-gemini-mark" aria-hidden="true"><SanadMark size={26} /></span>
-          <p>{intro}</p>
-        </div>
-      )}
-      <form onSubmit={ask} className="ai-gemini-bar">
-        <label className="ai-gemini-plus" aria-label="إرفاق صورة">
-          <Plus size={18} />
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
-            hidden
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-              event.target.value = ''
-              if (!file || file.size > 1_200_000) { setError(file ? 'الصورة أكبر من 1.2 ميغابايت.' : ''); return }
-              const reader = new FileReader()
-              reader.onload = () => {
-                const value = String(reader.result || '')
-                const data = value.slice(value.indexOf(',') + 1)
-                setImage({ mediaType: file.type, data, name: file.name })
-              }
-              reader.readAsDataURL(file)
-            }}
-          />
-        </label>
-        <input
-          value={question}
-          onChange={(event) => setQuestion(event.target.value)}
-          disabled={!ready}
-          placeholder={placeholder}
-          maxLength={2000}
-          type={secretStep ? 'password' : 'text'}
-          autoComplete={secretStep ? 'new-password' : 'off'}
-        />
-        <button type="submit" className="ai-gemini-send" disabled={!ready || loading || !canSend} aria-label="اسأل">
-          {loading ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} />}
-        </button>
-      </form>
-
-      {image && <p className="ai-gemini-meta">مرفقة: {image.name}</p>}
-      {status.configured === false && <p className="ai-gemini-meta">اقتراح الحل يحتاج مفتاح المساعد على الخادم. أسئلة التذاكر تعمل الآن.</p>}
-      {mode === 'admin' && status.configured && !status.enabled && <p className="ai-gemini-meta">المساعد متوقف من الإعدادات.</p>}
-      {error && <p className="ai-box-error">{error}</p>}
-
-      {reply && (
-        <div className="ai-box-reply">
-          <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
-          <p>{reply.answer}</p>
-          {reply.steps.length > 0 && (
-            <ol>
-              {reply.steps.map((item, index) => <li key={index}>{item}</li>)}
-            </ol>
-          )}
-          {(choices.length || reply.confirm || reply.followups?.length) ? (
-            <div className="ai-box-actions">
-              {reply.confirm && (
-                <button type="button" className="ai-primary" disabled={loading} onClick={() => void send({ question: 'تأكيد', confirm: reply.confirm })}>{reply.confirm.label}</button>
-              )}
-              {usePicker ? (
-                <div className="ai-picker">
-                  <input
-                    value={pickQuery}
-                    onChange={(event) => setPickQuery(event.target.value)}
-                    placeholder="ابحث بالاسم أو رقم الموظف"
-                    aria-label="بحث في الحسابات"
-                  />
-                  <div className="ai-picker-list">
-                    {picked.length === 0 ? <p>لا يوجد حساب بهذا البحث.</p> : picked.map((choice) => (
-                      <button key={choice.id} type="button" disabled={loading} onClick={() => void send({ question: choice.label, choice: choice.id })}>{choice.label}</button>
-                    ))}
-                  </div>
-                </div>
-              ) : listed.map((choice) => (
-                <button key={choice.id} type="button" className="ai-ghost" disabled={loading} onClick={() => void send({ question: choice.label, choice: choice.id })}>{choice.label}</button>
-              ))}
-              {cancelChoice && (
-                <button type="button" className="ai-ghost" disabled={loading} onClick={() => void send({ question: cancelChoice.label, choice: cancelChoice.id })}>{cancelChoice.label}</button>
-              )}
-              {reply.followups?.map((item) => (
-                <button key={item.ticketId} type="button" className="ai-primary" disabled={loading} onClick={async () => {
-                  const result = await ticketAction(supabase, item.ticketId, 'reopen', { reason: 'عادت المشكلة', via: 'sanad' })
-                  if (result.error) setError(result.error)
-                  else { setReply({ ...reply, answer: `${reply.answer}\nتمت إعادة فتح البلاغ.` , followups: [] }); onTicketsChanged?.() }
-                }}>{item.label}</button>
-              ))}
-            </div>
-          ) : null}
-          {mode === 'employee' && helpReply && (reply.needs_ticket || reply.steps.length > 0) && (filedNo ? (
-            <p className="ai-box-done">تم رفع البلاغ {filedNo} وإحالته إلى الدعم التقني.</p>
-          ) : solved ? (
-            <p className="ai-box-done">ممتاز، يسعدنا أن المشكلة حُلّت.</p>
-          ) : (
-            <div className="ai-box-actions">
-              <button type="button" className="ai-ghost" onClick={() => { setSolved(true); setQuestion('') }}>حُلّت المشكلة</button>
-              <button type="button" className="ai-primary" disabled={filing} onClick={raiseTicket}>
-                {filing ? 'جارٍ الرفع...' : 'ارفع البلاغ للدعم'}
-              </button>
-              {onOpenTicket && (
-                <button type="button" className="ai-ghost" onClick={() => onOpenTicket(asked, reply.fault_type)}>أضف تفاصيل قبل الرفع</button>
-              )}
-            </div>
-          ))}
-          {mode === 'employee' && helpReply && (reply.needs_ticket || reply.steps.length > 0) && reply.urgent && !solved && !filedNo && <p className="ai-box-note">يبدو أن العمل متوقف، وسيُرفع البلاغ بدرجة عاجل.</p>}
-          {mode === 'technician' && helpReply && reply.needs_ticket && <p className="ai-box-note">قد يحتاج تصعيداً.</p>}
-        </div>
-      )}
-
-      {!compact && thread.length > 0 && (
-        <div className="ai-thread">
-          {[...thread].reverse().map((turn, index) => (
-            <div key={`${turn.q}-${index}`} className="ai-turn">
-              <p className="ai-thread-q">{turn.q}</p>
-              <div className="ai-thread-a">
-                <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
-                <p>{turn.a}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!guiding && shownGroups.map((group) => (
-        <div key={group} className="ai-gemini-group">
-          {reply && group === shownGroups[0] && <p className="ai-gemini-again">أو اختر خطوة</p>}
-          <p className="ai-gemini-group-label">{compact ? 'أو اختر إجراءً' : group}</p>
-          {!compact && GROUP_HINT[group] && <p className="ai-gemini-hint">{GROUP_HINT[group]}</p>}
-          <div className="ai-gemini-prompts">
-            {prompts.filter((prompt) => prompt.group === group).map((prompt) => (
-              <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>
-            ))}
+        {composer}
+        {notices}
+        {reply && (
+          <div className="ai-box-reply">
+            <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
+            {replyDetails}
           </div>
-        </div>
-      ))}
+        )}
+        {shortcuts}
+      </section>
+    )
+  }
+
+  return (
+    <section className="ai-gemini">
+      <div className="ai-gemini-intro">
+        <span className="ai-gemini-mark" aria-hidden="true"><SanadMark size={26} /></span>
+        <p>{intro}</p>
+      </div>
+      <div className="ai-thread" ref={transcriptRef} role="log" aria-label="محادثة سند">
+        {thread.map((turn, index) => (
+          <div key={`past-${index}`} className="ai-turn">
+            <p className="ai-thread-q">{turn.q}</p>
+            <div className="ai-thread-a">
+              <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
+              <p>{turn.a}</p>
+            </div>
+          </div>
+        ))}
+        {reply && (
+          <div className="ai-turn">
+            {lastQuestion ? <p className="ai-thread-q">{lastQuestion}</p> : null}
+            <div className="ai-thread-a">
+              <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
+              {replyDetails}
+            </div>
+          </div>
+        )}
+        {loading && <p className="ai-pending">سند يكتب…</p>}
+      </div>
+      <div className="ai-dock">
+        {shortcuts ? <div className="ai-shortcuts">{shortcuts}</div> : null}
+        {notices}
+        {composer}
+      </div>
     </section>
   )
 }

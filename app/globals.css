@@ -857,6 +857,8 @@ details.fold[open] > summary::after {
 .ai-gemini:not(.ai-gemini-compact) {
   position: relative;
   overflow: hidden;
+  height: min(760px, calc(100dvh - 200px));
+  min-height: 520px;
   padding: 22px;
   border-radius: 28px;
   border: 1px solid rgba(139, 92, 246, 0.22);
@@ -930,6 +932,7 @@ details.fold[open] > summary::after {
   display: flex;
   align-items: center;
   gap: 14px;
+  flex: 0 0 auto;
 }
 
 .ai-gemini-intro p {
@@ -1046,7 +1049,59 @@ details.fold[open] > summary::after {
 .ai-thread {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 8px;
+}
+
+.ai-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 0 0 auto;
+  border-top: 1px solid rgba(139, 92, 246, 0.16);
+  padding-top: 12px;
+}
+
+.ai-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.ai-pending {
+  margin: 0;
+  align-self: flex-end;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-thread {
+  max-height: min(52vh, 520px);
+  overflow: auto;
+}
+
+.ai-dock,
+.ai-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-pending {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .ai-turn {
@@ -1096,6 +1151,44 @@ details.fold[open] > summary::after {
 .ai-thread-a p {
   margin: 0;
   white-space: pre-line;
+}
+
+.ai-thread-a ol {
+  margin: 8px 0 0;
+  padding-inline-start: 20px;
+}
+
+.ai-thread-a .ai-box-actions,
+.ai-thread-a .ai-box-note,
+.ai-thread-a .ai-box-done {
+  margin-top: 8px;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-gemini-prompts {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-gemini-prompts button {
+  width: auto;
+  border-radius: 999px;
+}
+
+@media (max-width: 720px) {
+  .ai-gemini:not(.ai-gemini-compact) {
+    height: auto;
+    min-height: 0;
+  }
+
+  .ai-gemini:not(.ai-gemini-compact) .ai-thread {
+    min-height: 220px;
+    max-height: min(52dvh, 480px);
+  }
+
+  .ai-shortcuts {
+    max-height: none;
+  }
 }
 
 .ai-gemini-prompts button {
