@@ -260,7 +260,7 @@ export default function EmployeePage() {
         })
         seenReplyIds.current = nextReplies
       }
-      const fresh = unseenNotices(uid, notices.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))).slice(0, 8)
+      const fresh = unseenNotices(uid, notices.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)).slice(0, 8))
       setNotifications(fresh)
       setNoticeUnread(fresh.some((item) => !noticeAcked.current.has(item.id)))
     } else {
