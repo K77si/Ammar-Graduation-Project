@@ -1171,6 +1171,7 @@ export default function Page() {
                         <th>نوع العطل</th>
                         <th>الفني</th>
                         <th>الحالة</th>
+                        <th>الأهمية</th>
                         <th>التاريخ والوقت</th>
                       </tr>
                     </thead>
@@ -1197,6 +1198,7 @@ export default function Page() {
                             <td>{ticket.fault_type || '—'}</td>
                             <td>{ticket.assigneeName || worker?.full_name || 'بانتظار فني'}</td>
                             <td><StatusBadge status={ticket.status} /></td>
+                            <td>{ticket.priority === 'عاجل' ? <span style={{ color: '#ef4444', fontWeight: 700 }}>عاجل</span> : 'عادي'}</td>
                             <td>{formatTicketWhen(ticket.created_at)}</td>
                           </tr>
                         )

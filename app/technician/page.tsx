@@ -763,6 +763,7 @@ function TicketTable({ loading, tickets, names, numbers, departments, workerName
             <th>نوع العطل</th>
             <th>يعمل عليها</th>
             <th>الحالة</th>
+            <th>الأهمية</th>
             <th>التاريخ والوقت</th>
           </tr>
         </thead>
@@ -794,6 +795,7 @@ function TicketTable({ loading, tickets, names, numbers, departments, workerName
                 <td>{ticket.fault_type || '—'}</td>
                 <td>{workerName(ticket)}</td>
                 <td><StatusBadge status={ticket.status} /></td>
+                <td>{ticket.priority === 'عاجل' ? <span style={{ color: '#ef4444', fontWeight: 700 }}>عاجل</span> : 'عادي'}</td>
                 <td>{formatTicketWhen(ticket.created_at)}</td>
               </tr>
             )
