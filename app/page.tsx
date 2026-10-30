@@ -210,20 +210,36 @@ export default function Page() {
     setPickedPermissions([])
   }
 
+  const accessToken = async () => {
+    const current = await supabase.auth.getSession()
+    const session = current.data.session
+    if (session?.access_token && session.expires_at && session.expires_at * 1000 > Date.now() + 20_000) return session.access_token
+    const refreshed = await supabase.auth.refreshSession()
+    return refreshed.data.session?.access_token || ''
+  }
+
   const verifyOwnerAccount = async () => {
     setOwnerChecking(true)
     setOwnerError('')
-    const session = await supabase.auth.getSession()
-    const response = await fetch('/api/auth/owner', {
+    const post = (token: string) => fetch('/api/auth/owner', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.data.session?.access_token || ''}` },
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ username: ownerUsername.trim(), password: ownerPassword })
     })
-    const result = await response.json().catch(() => ({}))
+    let response = await post(await accessToken())
+    let result = await response.json().catch(() => ({} as { error?: string }))
+    if (response.status === 401 && result.error === 'يلزم تسجيل الدخول.') {
+      const refreshed = await supabase.auth.refreshSession()
+      const token = refreshed.data.session?.access_token || ''
+      if (token) {
+        response = await post(token)
+        result = await response.json().catch(() => ({} as { error?: string }))
+      }
+    }
     setOwnerChecking(false)
     if (!response.ok) {
       setOwnerVerified(false)
-      setOwnerError(result.error || 'البريد أو اسم المستخدم أو كلمة المرور غير صحيحة.')
+      setOwnerError(result.error === 'يلزم تسجيل الدخول.' ? 'انتهت جلستك. سجّل الخروج ثم ادخل مرة أخرى، وبعدها أعد التحقق.' : (result.error || 'البريد أو اسم المستخدم أو كلمة المرور غير صحيحة.'))
       return
     }
     setOwnerVerified(true)
@@ -452,10 +468,9 @@ export default function Page() {
     }
 
     setAdding(true)
-    const session = await supabase.auth.getSession()
     const response = await fetch('/api/users', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.data.session?.access_token || ''}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await accessToken()}` },
       body: JSON.stringify({
         fullName: newFullName.trim(),
         email: generatedEmail,
@@ -519,10 +534,9 @@ export default function Page() {
       if (weakPassword) { setEditError(weakPassword); setEditing(false); return }
     }
     if (promoting || passwordChanged) {
-      const session = await supabase.auth.getSession()
       const response = await fetch('/api/users', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.data.session?.access_token || ''}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await accessToken()}` },
         body: JSON.stringify({
           userId: editUserId,
           password: passwordChanged ? nextPassword : undefined,
@@ -560,10 +574,9 @@ export default function Page() {
 
   const deleteUser = async (id: string) => {
     setDeleting(true)
-    const session = await supabase.auth.getSession()
     const response = await fetch('/api/users', {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.data.session?.access_token || ''}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await accessToken()}` },
       body: JSON.stringify({ userId: id })
     })
     const result = await response.json().catch(() => ({ error: 'تعذر حذف المستخدم.' }))
