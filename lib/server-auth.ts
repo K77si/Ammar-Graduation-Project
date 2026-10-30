@@ -72,7 +72,8 @@ export async function verifyOwner(identifier: string, password: string) {
     await recordFailure(['owner'])
     return { ok: false as const, error: OWNER_ERROR }
   }
-  await client.auth.signOut()
+  // Local only. A global sign-out revokes every session for this owner, including the admin tab that just verified, so the following role save is rejected.
+  await client.auth.signOut({ scope: 'local' })
   await clearFailures(['owner'])
   return { ok: true as const }
 }

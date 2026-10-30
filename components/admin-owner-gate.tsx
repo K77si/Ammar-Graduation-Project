@@ -59,7 +59,7 @@ export function AdminOwnerGate({
       <p style={{ color: '#64748b', fontSize: '13px', lineHeight: 1.7, margin: '0 0 1rem' }}>
         إضافة مدير نظام تتطلب تحقق عمار.
       </p>
-      {error && <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', padding: '10px', borderRadius: '8px', fontSize: '13px', marginBottom: '1rem', textAlign: 'center' }}>{error}</div>}
+      {error && !(verified && (error === 'يلزم تسجيل الدخول.' || error.includes('انتهت جلسة'))) && <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', padding: '10px', borderRadius: '8px', fontSize: '13px', marginBottom: '1rem', textAlign: 'center' }}>{error}</div>}
       {!verified ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>

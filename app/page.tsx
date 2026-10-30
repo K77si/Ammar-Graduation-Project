@@ -210,38 +210,63 @@ export default function Page() {
     setPickedPermissions([])
   }
 
-  const accessToken = async () => {
+  const SESSION_ENDED = 'انتهت جلسة المدير. سجّل الخروج ثم ادخل مرة أخرى، وبعدها أعد التحقق.'
+  const LOGIN_REQUIRED = 'يلزم تسجيل الدخول.'
+
+  const tokenExpiry = (session: { expires_at?: number } | null) => {
+    if (!session?.expires_at) return 0
+    const seconds = session.expires_at > 10_000_000_000 ? Math.floor(session.expires_at / 1000) : session.expires_at
+    return seconds * 1000
+  }
+
+  const freshAccessToken = async () => {
     const current = await supabase.auth.getSession()
     const session = current.data.session
-    if (session?.access_token && session.expires_at && session.expires_at * 1000 > Date.now() + 20_000) return session.access_token
+    const expiry = tokenExpiry(session)
+    if (session?.access_token && expiry > Date.now() + 60_000) return session.access_token
     const refreshed = await supabase.auth.refreshSession()
-    return refreshed.data.session?.access_token || ''
+    if (refreshed.data.session?.access_token) return refreshed.data.session.access_token
+    if (session?.access_token && expiry > Date.now()) return session.access_token
+    return ''
+  }
+
+  const authFetch = async (url: string, method: string, body: string) => {
+    const send = (token: string) => fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body
+    })
+    let response = await send(await freshAccessToken())
+    if (response.status !== 401) return response
+    const preview = await response.clone().json().catch(() => ({} as { error?: string }))
+    if (preview.error !== LOGIN_REQUIRED) return response
+    const refreshed = await supabase.auth.refreshSession()
+    const token = refreshed.data.session?.access_token || ''
+    if (!token) return response
+    return send(token)
+  }
+
+  const markSessionEnded = () => {
+    setOwnerVerified(false)
+    setOwnerError(SESSION_ENDED)
+    setEditError('')
+    setModalError('')
   }
 
   const verifyOwnerAccount = async () => {
     setOwnerChecking(true)
     setOwnerError('')
-    const post = (token: string) => fetch('/api/auth/owner', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ username: ownerUsername.trim(), password: ownerPassword })
-    })
-    let response = await post(await accessToken())
-    let result = await response.json().catch(() => ({} as { error?: string }))
-    if (response.status === 401 && result.error === 'يلزم تسجيل الدخول.') {
-      const refreshed = await supabase.auth.refreshSession()
-      const token = refreshed.data.session?.access_token || ''
-      if (token) {
-        response = await post(token)
-        result = await response.json().catch(() => ({} as { error?: string }))
-      }
-    }
+    const response = await authFetch('/api/auth/owner', 'POST', JSON.stringify({ username: ownerUsername.trim(), password: ownerPassword }))
+    const result = await response.json().catch(() => ({} as { error?: string }))
     setOwnerChecking(false)
     if (!response.ok) {
       setOwnerVerified(false)
-      setOwnerError(result.error === 'يلزم تسجيل الدخول.' ? 'انتهت جلستك. سجّل الخروج ثم ادخل مرة أخرى، وبعدها أعد التحقق.' : (result.error || 'البريد أو اسم المستخدم أو كلمة المرور غير صحيحة.'))
+      setOwnerError(result.error === LOGIN_REQUIRED ? SESSION_ENDED : (result.error || 'البريد أو اسم المستخدم أو كلمة المرور غير صحيحة.'))
       return
     }
+    setOwnerError('')
+    setEditError('')
+    setModalError('')
     setOwnerVerified(true)
   }
 
@@ -468,24 +493,25 @@ export default function Page() {
     }
 
     setAdding(true)
-    const response = await fetch('/api/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await accessToken()}` },
-      body: JSON.stringify({
-        fullName: newFullName.trim(),
-        email: generatedEmail,
-        username: cleanUsername,
-        employeeNumber,
-        department: departmentResult.department,
-        role: newRole,
-        password: newPassword,
-        ownerUsername: ownerUsername.trim(),
-        ownerPassword,
-        permissions: pickedPermissions
-      })
-    })
+    const response = await authFetch('/api/users', 'POST', JSON.stringify({
+      fullName: newFullName.trim(),
+      email: generatedEmail,
+      username: cleanUsername,
+      employeeNumber,
+      department: departmentResult.department,
+      role: newRole,
+      password: newPassword,
+      ownerUsername: ownerUsername.trim(),
+      ownerPassword,
+      permissions: pickedPermissions
+    }))
     const result = await response.json().catch(() => ({ error: 'تعذر إنشاء الحساب.' }))
-    if (!response.ok) setModalError(result.error || 'تعذر إنشاء حساب الدخول.')
+    if (!response.ok) {
+      if (result.error === LOGIN_REQUIRED) {
+        if (newRole === 'admin') markSessionEnded()
+        else setModalError(SESSION_ENDED)
+      } else setModalError(result.error || 'تعذر إنشاء حساب الدخول.')
+    }
     else {
       setShowAddModal(false)
       resetGrant()
@@ -534,22 +560,28 @@ export default function Page() {
       if (weakPassword) { setEditError(weakPassword); setEditing(false); return }
     }
     if (promoting || passwordChanged) {
-      const response = await fetch('/api/users', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await accessToken()}` },
-        body: JSON.stringify({
-          userId: editUserId,
-          password: passwordChanged ? nextPassword : undefined,
-          fullName: editFullName.trim(),
-          department: departmentResult.department,
-          role: promoting ? 'admin' : undefined,
-          permissions: pickedPermissions,
-          ownerUsername: ownerUsername.trim(),
-          ownerPassword
-        })
-      })
+      const response = await authFetch('/api/users', 'PATCH', JSON.stringify({
+        userId: editUserId,
+        password: passwordChanged ? nextPassword : undefined,
+        fullName: editFullName.trim(),
+        department: departmentResult.department,
+        role: promoting ? 'admin' : undefined,
+        permissions: pickedPermissions,
+        ownerUsername: ownerUsername.trim(),
+        ownerPassword
+      }))
       const result = await response.json().catch(() => ({ error: 'تعذر تحديث الحساب.' }))
-      if (!response.ok) { setEditError(result.error || 'تعذر تحديث الحساب.'); setEditing(false); return }
+      if (!response.ok) {
+        setEditing(false)
+        if (result.error === LOGIN_REQUIRED) {
+          if (promoting) markSessionEnded()
+          else setEditError(SESSION_ENDED)
+        } else setEditError(result.error || 'تعذر تحديث الحساب.')
+        return
+      }
+      if (promoting) {
+        setUsers((current) => current.map((person) => person.id === editUserId ? { ...person, role: 'admin', full_name: editFullName.trim(), department: departmentResult.department, employee_number: employeeNumber, admin_permissions: [...pickedPermissions] } : person))
+      }
     }
     const profilePatch = promoting
       ? { employee_number: employeeNumber }
@@ -557,6 +589,7 @@ export default function Page() {
     const { error: profileError } = await supabase.from('profiles').update(profilePatch).eq('id', editUserId)
     if (profileError) {
       const message = profileError.message.includes('employee_number') ? 'رقم الموظف مستخدم لحساب آخر.' : profileError.message
+      if (promoting) fetchAllData(true)
       setEditError(message); setEditing(false); return
     }
     resetGrant()
@@ -574,15 +607,11 @@ export default function Page() {
 
   const deleteUser = async (id: string) => {
     setDeleting(true)
-    const response = await fetch('/api/users', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await accessToken()}` },
-      body: JSON.stringify({ userId: id })
-    })
+    const response = await authFetch('/api/users', 'DELETE', JSON.stringify({ userId: id }))
     const result = await response.json().catch(() => ({ error: 'تعذر حذف المستخدم.' }))
     setDeleting(false)
     setPendingDelete(null)
-    if (!response.ok) { showToast(result.error || 'تعذّر حذف المستخدم.', 'error'); return }
+    if (!response.ok) { showToast(result.error === LOGIN_REQUIRED ? SESSION_ENDED : (result.error || 'تعذّر حذف المستخدم.'), 'error'); return }
     showToast(result.auditWarning ? `تم حذف الحساب. ${result.auditWarning}` : 'تم حذف الحساب نهائياً.')
     fetchAllData(); setActiveDropdown(null)
   }
@@ -1239,7 +1268,7 @@ export default function Page() {
                 verified={ownerVerified}
                 checking={ownerChecking}
                 saving={adding}
-                error={ownerError || modalError}
+                error={ownerVerified ? modalError : ownerError}
                 permissions={pickedPermissions}
                 submitLabel={adding ? 'جاري الحفظ...' : 'إنشاء مدير النظام'}
                 onUsername={(value) => { setOwnerUsername(value); setOwnerVerified(false) }}
@@ -1316,7 +1345,7 @@ export default function Page() {
                 verified={ownerVerified}
                 checking={ownerChecking}
                 saving={editing}
-                error={ownerError || editError}
+                error={ownerVerified ? editError : ownerError}
                 permissions={pickedPermissions}
                 submitLabel={editing ? 'جاري الحفظ...' : 'حفظ مدير النظام'}
                 onUsername={(value) => { setOwnerUsername(value); setOwnerVerified(false) }}
