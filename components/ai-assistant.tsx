@@ -76,13 +76,19 @@ const MENUS: Record<Persona, Chip[]> = {
     { group: 'بلاغات', label: 'تقييم ضعيف', question: 'تقييم ضعيف' }
   ],
   user: [
-    { group: 'بلاغات', label: 'بلاغاتي المفتوحة', question: 'كم بلاغ مفتوح عندي' },
-    { group: 'بلاغات', label: 'بانتظار ردي', question: 'بانتظار ردي' },
-    { group: 'بلاغات', label: 'رجعت المشكلة', question: 'رجعت المشكلة' },
-    { group: 'بلاغات', label: 'تقييم بلاغ', question: 'تقييم بلاغ' },
-    { group: 'بلاغات', label: 'جهازي لا يعمل', question: 'جهازي لا يعمل' },
-    { group: 'بلاغات', label: 'الطابعة لا تطبع', question: 'الطابعة لا تطبع' }
+    { group: 'صف العطل', label: 'جهازي لا يعمل', question: 'جهازي لا يعمل' },
+    { group: 'صف العطل', label: 'الطابعة لا تطبع', question: 'الطابعة لا تطبع' },
+    { group: 'تابع بلاغاتك', label: 'بلاغاتي المفتوحة', question: 'كم بلاغ مفتوح عندي' },
+    { group: 'تابع بلاغاتك', label: 'بانتظار ردي', question: 'بانتظار ردي' },
+    { group: 'بعد الإنجاز', label: 'رجعت المشكلة', question: 'رجعت المشكلة' },
+    { group: 'بعد الإنجاز', label: 'تقييم بلاغ', question: 'تقييم بلاغ' }
   ]
+}
+
+const GROUP_HINT: Record<string, string> = {
+  'صف العطل': 'يشرح الخطوات. إذا ما انحلت، ترفع بلاغاً.',
+  'تابع بلاغاتك': 'أرقام بلاغاتك، واللي الفني ينتظر ردك فيها.',
+  'بعد الإنجاز': 'قيّم البلاغ، أو أعد فتحه إذا رجعت المشكلة.'
 }
 
 const INTRO: Record<Persona, string> = {
@@ -500,8 +506,9 @@ export function AiAssistant({
 
       {!guiding && shownGroups.map((group) => (
         <div key={group} className="ai-gemini-group">
-          {reply && group === shownGroups[0] && <p className="ai-gemini-again">خدمة أخرى</p>}
+          {reply && group === shownGroups[0] && <p className="ai-gemini-again">أو اختر خطوة</p>}
           <p className="ai-gemini-group-label">{compact ? 'أو اختر إجراءً' : group}</p>
+          {!compact && GROUP_HINT[group] && <p className="ai-gemini-hint">{GROUP_HINT[group]}</p>}
           <div className="ai-gemini-prompts">
             {prompts.filter((prompt) => prompt.group === group).map((prompt) => (
               <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>

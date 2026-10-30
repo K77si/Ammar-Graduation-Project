@@ -1029,6 +1029,14 @@ details.fold[open] > summary::after {
   font-weight: 800;
 }
 
+.ai-gemini-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
 .ai-gemini-group {
   display: flex;
   flex-direction: column;
