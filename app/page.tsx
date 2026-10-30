@@ -463,8 +463,8 @@ export default function Page() {
     })
     return Object.keys(counts).map(key => ({
       label: key,
-      value: totalTickets > 0 ? Math.round((counts[key] / totalTickets) * 100) : 0
-    })).sort((a, b) => b.value - a.value)
+      count: counts[key]
+    })).sort((a, b) => b.count - a.count)
   }, [tickets, totalTickets])
 
   const handleAddUser = async (e?: React.FormEvent) => {
@@ -883,7 +883,7 @@ export default function Page() {
                   <PanelHeader icon={<PieChart />} title="البلاغات حسب قسم صاحبها" action="" />
                   <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {deptStats.length > 0 ? deptStats.map((stat, i) => (
-                      <ProgressBar key={i} label={stat.label} value={stat.value} color={i % 2 === 0 ? '#8b5cf6' : '#10b981'} />
+                      <ProgressBar key={i} label={stat.label} count={stat.count} total={totalTickets} color={i % 2 === 0 ? '#8b5cf6' : '#10b981'} />
                     )) : (
                       <div style={{ textAlign: 'center', opacity: 0.6, padding: '20px' }}>لا توجد بلاغات بعد.</div>
                     )}
@@ -893,12 +893,12 @@ export default function Page() {
                 <section className="panel">
                   <PanelHeader icon={<BarChart3 />} title="البلاغات حسب الحالة" action="" />
                   <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <ProgressBar label="مفتوحة" value={totalTickets ? Math.round((openTicketsCount / totalTickets) * 100) : 0} color="#f59e0b" />
-                    <ProgressBar label="قيد المعالجة" value={totalTickets ? Math.round((progressTicketsCount / totalTickets) * 100) : 0} color="#3b82f6" />
-                    <ProgressBar label="بانتظار الموظف" value={totalTickets ? Math.round((tickets.filter(t => t.status === 'بانتظار الموظف').length / totalTickets) * 100) : 0} color="#a855f7" />
-                    <ProgressBar label="منجزة" value={totalTickets ? Math.round((tickets.filter(t => t.status === 'منجزة').length / totalTickets) * 100) : 0} color="#10b981" />
-                    <ProgressBar label="مغلقة" value={totalTickets ? Math.round((tickets.filter(t => t.status === 'مغلقة').length / totalTickets) * 100) : 0} color="#64748b" />
-                    <ProgressBar label="ملغاة" value={totalTickets ? Math.round((tickets.filter(t => t.status === 'ملغاة').length / totalTickets) * 100) : 0} color="#94a3b8" />
+                    <ProgressBar label="مفتوحة" count={openTicketsCount} total={totalTickets} color="#f59e0b" />
+                    <ProgressBar label="قيد المعالجة" count={progressTicketsCount} total={totalTickets} color="#3b82f6" />
+                    <ProgressBar label="بانتظار الموظف" count={tickets.filter(t => t.status === 'بانتظار الموظف').length} total={totalTickets} color="#a855f7" />
+                    <ProgressBar label="منجزة" count={tickets.filter(t => t.status === 'منجزة').length} total={totalTickets} color="#10b981" />
+                    <ProgressBar label="مغلقة" count={tickets.filter(t => t.status === 'مغلقة').length} total={totalTickets} color="#64748b" />
+                    <ProgressBar label="ملغاة" count={tickets.filter(t => t.status === 'ملغاة').length} total={totalTickets} color="#94a3b8" />
                   </div>
                 </section>
               </div>
@@ -1433,12 +1433,13 @@ function Stat({ icon, label, value, sub, onClick }: { icon: React.ReactNode; lab
   return <button type="button" className="stat-card" onClick={onClick}><div className="stat-icon">{icon}</div><span className="stat-delta up">{sub}</span><small>{label}</small><strong>{value}</strong><span className="stat-caption">اضغط لفتح القائمة</span></button>
 }
 
-function ProgressBar({ label, value, color }: { label: string, value: number, color: string }) {
+function ProgressBar({ label, count, total, color }: { label: string, count: number, total: number, color: string }) {
+  const width = total > 0 ? Math.round((count / total) * 100) : 0
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}><span>{label}</span><b>{value}%</b></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}><span>{label}</span><b>{count}</b></div>
       <div style={{ width: '100%', height: '8px', background: 'rgba(139, 92, 246, 0.1)', borderRadius: '4px', overflow: 'hidden' }}>
-        <div style={{ width: `${value}%`, height: '100%', background: color, borderRadius: '4px' }}></div>
+        <div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: '4px' }}></div>
       </div>
     </div>
   )
