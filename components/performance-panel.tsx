@@ -89,7 +89,7 @@ export function PerformancePanel({ tickets, events, technicians, showRaterNotes 
         const rating = validRating(ticket.rating)
         if (rating === null) return []
         return [{ id: ticket.id, rating, reason: (ticket.rating_reason || '').trim(), rater: ticket.rater_name || 'موظف', number: ticket.ticket_number }]
-      })
+      }).sort((a, b) => (b.number || 0) - (a.number || 0))
       return { id: tech.id, name: tech.full_name, done: done.length, active, resolve: average(durations), rating: average(techRatings), rated: techRatings.length, reviews }
     }).sort((a, b) => b.done - a.done)
 
@@ -159,15 +159,22 @@ export function PerformancePanel({ tickets, events, technicians, showRaterNotes 
                   </tr>
                   {showRaterNotes && tech.reviews.length > 0 && (
                     <tr>
-                      <td colSpan={5} style={{ fontSize: '12px', lineHeight: 1.8 }}>
-                        {tech.reviews.map((review) => (
-                          <p key={review.id} style={{ margin: '2px 0' }}>
-                            <b>{review.rater}</b>
-                            {review.number ? ` · ${formatTicketNo(review.number)}` : ''}
-                            {` · ${review.rating}/5`}
-                            {review.reason ? ` — ${review.reason}` : ''}
-                          </p>
-                        ))}
+                      <td colSpan={5} className="tech-reviews-cell">
+                        <details className="fold tech-reviews" open={tech.reviews.length <= 3}>
+                          <summary>تقييمات الموظفين ({tech.reviews.length})</summary>
+                          <div className="tech-review-list">
+                            {tech.reviews.map((review) => (
+                              <div key={review.id} className="tech-review">
+                                <div className="tech-review-head">
+                                  <b>{review.rater}</b>
+                                  {review.number ? <span className="ticket-no">{formatTicketNo(review.number)}</span> : null}
+                                  <span className="tech-review-stars">{review.rating}/5</span>
+                                </div>
+                                {review.reason ? <p>{review.reason}</p> : null}
+                              </div>
+                            ))}
+                          </div>
+                        </details>
                       </td>
                     </tr>
                   )}

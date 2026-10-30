@@ -1939,6 +1939,57 @@ td.cell-wrap {
   line-height: 1.6;
 }
 
+td.tech-reviews-cell {
+  white-space: normal;
+  background: var(--field);
+  padding: 8px 12px 12px;
+}
+
+.tech-reviews {
+  margin: 0;
+}
+
+.tech-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.tech-review {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.tech-review-head {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 12px;
+}
+
+.tech-review-stars {
+  margin-inline-start: auto;
+  background: rgba(245, 158, 11, 0.16);
+  color: #b45309;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 800;
+}
+
+.tech-review p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
+  white-space: normal;
+}
+
 table.ticket-cards {
   min-width: 720px;
 }
