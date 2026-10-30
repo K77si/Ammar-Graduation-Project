@@ -101,8 +101,6 @@ const INTRO: Record<Persona, string> = {
   user: 'اسأل عن أي شيء، أو صف العطل وتابع بلاغاتك.'
 }
 
-const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
-
 const STEP_HINT: Record<string, string> = {
   name: 'الاسم الثلاثي',
   email: 'البريد الإلكتروني',
@@ -196,12 +194,14 @@ export function AiAssistant({
     return () => { alive = false }
   }, [thread, lastQuestion, reply, supabase, mode, compact])
 
-  useIsoLayoutEffect(() => {
-    if (compact) return
+  const transcriptOpen = !compact && Boolean(status?.signedIn) && !(status?.configured && !status.enabled && mode !== 'admin')
+
+  useLayoutEffect(() => {
+    if (!transcriptOpen) return
     const node = transcriptRef.current
     if (!node) return
     node.scrollTop = node.scrollHeight
-  }, [thread, reply, lastQuestion, loading, compact])
+  }, [thread, reply, lastQuestion, loading, transcriptOpen, filedNo, solved])
 
   useEffect(() => {
     let alive = true

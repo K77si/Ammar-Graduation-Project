@@ -857,8 +857,8 @@ details.fold[open] > summary::after {
 .ai-gemini:not(.ai-gemini-compact) {
   position: relative;
   overflow: hidden;
-  height: min(760px, calc(100dvh - 200px));
-  min-height: 520px;
+  height: min(760px, calc(100dvh - 260px));
+  min-height: 420px;
   padding: 22px;
   border-radius: 28px;
   border: 1px solid rgba(139, 92, 246, 0.22);
@@ -1072,33 +1072,12 @@ details.fold[open] > summary::after {
 .ai-shortcuts {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-height: 280px;
-  overflow-y: auto;
+  gap: 10px;
 }
 
 .ai-pending {
   margin: 0;
   align-self: flex-end;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.ai-gemini:not(.ai-gemini-compact) .ai-thread {
-  max-height: min(52vh, 520px);
-  overflow: auto;
-}
-
-.ai-dock,
-.ai-shortcuts {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.ai-pending {
-  margin: 0;
   color: var(--text-muted);
   font-size: 13px;
   font-weight: 700;
@@ -1177,17 +1156,18 @@ details.fold[open] > summary::after {
 
 @media (max-width: 720px) {
   .ai-gemini:not(.ai-gemini-compact) {
-    height: auto;
-    min-height: 0;
+    height: min(760px, calc(100dvh - 180px));
+    min-height: 420px;
   }
 
   .ai-gemini:not(.ai-gemini-compact) .ai-thread {
-    min-height: 220px;
-    max-height: min(52dvh, 480px);
+    min-height: 0;
+    max-height: none;
   }
 
   .ai-shortcuts {
-    max-height: none;
+    max-height: 168px;
+    overflow-y: auto;
   }
 }
 
