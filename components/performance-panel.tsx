@@ -45,6 +45,7 @@ function validRating(value?: number | null) {
 
 export function PerformancePanel({ tickets, events, technicians, showRaterNotes = false }: { tickets: Ticket[]; events: StatusEvent[]; technicians: Technician[]; showRaterNotes?: boolean }) {
   const [range, setRange] = useState<'30' | '7' | 'all'>('30')
+  const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({})
   const [now] = useState(() => Date.now())
 
   const stats = useMemo(() => {
@@ -151,17 +152,23 @@ export function PerformancePanel({ tickets, events, technicians, showRaterNotes 
               {stats.perTech.map((tech) => (
                 <Fragment key={tech.id}>
                   <tr>
-                    <td>{tech.name}</td>
+                    <td>
+                      <div>{tech.name}</div>
+                      {showRaterNotes && tech.reviews.length > 0 && (
+                        <button type="button" className="tech-notes-toggle" aria-expanded={Boolean(openNotes[tech.id])} onClick={() => setOpenNotes((current) => ({ ...current, [tech.id]: !current[tech.id] }))}>
+                          {openNotes[tech.id] ? 'إخفاء التعليقات' : `إظهار التعليقات (${tech.reviews.length})`}
+                        </button>
+                      )}
+                    </td>
                     <td>{tech.done}</td>
                     <td>{tech.active}</td>
                     <td>{formatDuration(tech.resolve)}</td>
                     <td>{tech.rating === null ? '—' : `${tech.rating.toFixed(1)} / 5 (${tech.rated})`}</td>
                   </tr>
-                  {showRaterNotes && tech.reviews.length > 0 && (
+                  {showRaterNotes && openNotes[tech.id] && tech.reviews.length > 0 && (
                     <tr>
                       <td colSpan={5} className="tech-reviews-cell">
-                        <details className="fold tech-reviews" open={tech.reviews.length <= 3}>
-                          <summary>تقييمات الموظفين ({tech.reviews.length})</summary>
+                        <div className="tech-reviews">
                           <div className="tech-review-list">
                             {tech.reviews.map((review) => (
                               <div key={review.id} className="tech-review">
@@ -174,7 +181,7 @@ export function PerformancePanel({ tickets, events, technicians, showRaterNotes 
                               </div>
                             ))}
                           </div>
-                        </details>
+                        </div>
                       </td>
                     </tr>
                   )}
