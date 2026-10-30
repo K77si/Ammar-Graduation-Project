@@ -2094,6 +2094,26 @@ table.ticket-cards {
   color: var(--text-muted);
 }
 
+.person-name-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.user-new-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.65rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--accent-light);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 .username {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
 }

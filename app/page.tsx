@@ -41,6 +41,7 @@ interface UserProfile {
   must_change_password?: boolean
   admin_permissions?: string[] | null
   availability?: string | null
+  created_at?: string
 }
 
 interface TicketData {
@@ -89,6 +90,17 @@ function sameDay(value?: string | null) {
   if (Number.isNaN(date.getTime())) return false
   const now = new Date()
   return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
+}
+
+const NEW_USER_DAYS = 7
+const NEW_USER_MS = NEW_USER_DAYS * 24 * 60 * 60 * 1000
+
+function isRecentUser(createdAt?: string | null) {
+  if (!createdAt) return false
+  const created = new Date(createdAt).getTime()
+  if (Number.isNaN(created)) return false
+  const age = Date.now() - created
+  return age >= 0 && age <= NEW_USER_MS
 }
 
 export default function Page() {
@@ -1021,7 +1033,14 @@ export default function Page() {
                             <td>
                               <div className="person">
                                 <div className="avatar violet">{person.full_name ? person.full_name.slice(0, 2) : 'م'}</div>
-                                <div><b>{person.full_name}</b><small style={{ display: 'block', color: 'var(--text-muted)', fontWeight: 600 }}>رقم الموظف: <b dir="ltr" style={{ color: '#7c3aed', fontWeight: 800 }}>{person.employee_number || '—'}</b></small><small dir="ltr" style={{ color: 'var(--text-muted)' }}>{person.email}</small></div>
+                                <div>
+                                  <span className="person-name-line">
+                                    <b>{person.full_name}</b>
+                                    {isRecentUser(person.created_at) && <span className="user-new-badge">جديد</span>}
+                                  </span>
+                                  <small style={{ display: 'block', color: 'var(--text-muted)', fontWeight: 600 }}>رقم الموظف: <b dir="ltr" style={{ color: '#7c3aed', fontWeight: 800 }}>{person.employee_number || '—'}</b></small>
+                                  <small dir="ltr" style={{ color: 'var(--text-muted)' }}>{person.email}</small>
+                                </div>
                               </div>
                             </td>
                             <td>{departmentLabel(person.department)}</td>
