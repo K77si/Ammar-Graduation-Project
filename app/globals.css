@@ -1992,11 +1992,37 @@ td:has(.tech-notes-toggle) {
 
 .tech-review-stars {
   margin-inline-start: auto;
-  background: rgba(245, 158, 11, 0.16);
-  color: #b45309;
   border-radius: 999px;
   padding: 2px 8px;
   font-weight: 800;
+  white-space: nowrap;
+}
+
+.tech-review-stars-high {
+  background: rgba(16, 185, 129, 0.16);
+  color: #047857;
+}
+
+.tech-review-stars-mid {
+  background: rgba(245, 158, 11, 0.16);
+  color: #b45309;
+}
+
+.tech-review-stars-low {
+  background: rgba(239, 68, 68, 0.16);
+  color: #b91c1c;
+}
+
+.dark .tech-review-stars-high {
+  color: #34d399;
+}
+
+.dark .tech-review-stars-mid {
+  color: #fbbf24;
+}
+
+.dark .tech-review-stars-low {
+  color: #fca5a5;
 }
 
 .tech-review p {

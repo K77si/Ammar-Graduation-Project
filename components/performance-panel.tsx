@@ -43,6 +43,12 @@ function validRating(value?: number | null) {
   return typeof value === 'number' && value >= 1 && value <= 5 ? value : null
 }
 
+function ratingBadge(rating: number) {
+  if (rating >= 4) return { label: 'ممتاز', tone: 'high' }
+  if (rating === 3) return { label: 'متوسط', tone: 'mid' }
+  return { label: 'منخفض', tone: 'low' }
+}
+
 export function PerformancePanel({ tickets, events, technicians, showRaterNotes = false }: { tickets: Ticket[]; events: StatusEvent[]; technicians: Technician[]; showRaterNotes?: boolean }) {
   const [range, setRange] = useState<'30' | '7' | 'all'>('30')
   const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({})
@@ -170,16 +176,19 @@ export function PerformancePanel({ tickets, events, technicians, showRaterNotes 
                       <td colSpan={5} className="tech-reviews-cell">
                         <div className="tech-reviews">
                           <div className="tech-review-list">
-                            {tech.reviews.map((review) => (
-                              <div key={review.id} className="tech-review">
-                                <div className="tech-review-head">
-                                  <b>{review.rater}</b>
-                                  {review.number ? <span className="ticket-no">{formatTicketNo(review.number)}</span> : null}
-                                  <span className="tech-review-stars">{review.rating}/5</span>
+                            {tech.reviews.map((review) => {
+                              const badge = ratingBadge(review.rating)
+                              return (
+                                <div key={review.id} className="tech-review">
+                                  <div className="tech-review-head">
+                                    <b>{review.rater}</b>
+                                    {review.number ? <span className="ticket-no">{formatTicketNo(review.number)}</span> : null}
+                                    <span className={`tech-review-stars tech-review-stars-${badge.tone}`}>التقييم: {badge.label} {review.rating}/5</span>
+                                  </div>
+                                  {review.reason ? <p>{review.reason}</p> : null}
                                 </div>
-                                {review.reason ? <p>{review.reason}</p> : null}
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         </div>
                       </td>
