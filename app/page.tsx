@@ -21,6 +21,7 @@ import { DEPARTMENTS, statusLabel, TECH_DEPARTMENT, asRating, departmentLabel, f
 import { useGreeting } from '@/lib/use-greeting'
 import { loadTicketThread, readTicketMeta, sendTicketReply, subscribeTicketChanges, type ThreadMessage } from '@/lib/ticket-thread'
 import { loadTicketEvents } from '@/lib/ticket-events'
+import { rememberNotices } from '@/lib/seen-notices'
 import { closeStale, downloadText, isActive, isDelayed, monthKey, sortTickets, ticketAction, ticketsToCsv } from '@/lib/workflow'
 import { browserSupabase } from '@/lib/supabase-browser'
 import { useTheme } from '@/lib/theme'
@@ -69,6 +70,27 @@ interface TicketData {
   closed_at?: string | null
 }
 
+function unreadNoticeIds(userId: string, ids: string[]) {
+  if (!userId || typeof window === 'undefined') return [] as string[]
+  const raw = localStorage.getItem(`sanad-seen:${userId}`)
+  if (!raw) return ids
+  try {
+    const parsed = JSON.parse(raw)
+    const seen = new Set(Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [])
+    return ids.filter((id) => !seen.has(id))
+  } catch {
+    return ids
+  }
+}
+
+function sameDay(value?: string | null) {
+  if (!value) return false
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return false
+  const now = new Date()
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
+}
+
 export default function Page() {
   const { dark, toggle } = useTheme()
   const [menu, setMenu] = useState(false)
@@ -106,6 +128,9 @@ export default function Page() {
   const [showHelpModal, setShowHelpModal] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const [showAlerts, setShowAlerts] = useState(false)
+  const [adminNotices, setAdminNotices] = useState<Array<{ id: string; message: string; ticketId?: string }>>([])
+  const [adminUnread, setAdminUnread] = useState(false)
+  const adminAcked = useRef(new Set<string>())
   const [statusEvents, setStatusEvents] = useState<Array<{ ticket_id: string; from_status: string | null; to_status: string | null; created_at: string }>>([])
   const [showEditModal, setShowEditModal] = useState(false)
 
@@ -351,13 +376,44 @@ export default function Page() {
   const progressTicketsCount = tickets.filter(t => t.status === 'قيد المعالجة').length
   const delayedCount = tickets.filter((ticket) => isDelayed(ticket)).length
   const urgentActive = tickets.filter((ticket) => (ticket.priority === 'عاجل' || ticket.is_outage) && isActive(ticket.status)).length
-  const adminAlerts = useMemo(() => tickets
-    .filter((ticket) => isDelayed(ticket) || (isActive(ticket.status) && (ticket.is_outage || ticket.priority === 'عاجل')))
-    .map((ticket) => ({
-      ticket,
-      reason: ticket.is_outage ? `تعطل قسم ${departmentLabel(ticket.affected_department)}` : isDelayed(ticket) ? 'متأخر: أكثر من يوم بدون فني' : 'عاجل'
-    }))
-    .slice(0, 10), [tickets])
+  useEffect(() => {
+    if (!accessReady || !adminId) return
+    if (sysSettings.email_alerts === false) {
+      setAdminNotices([])
+      setAdminUnread(false)
+      return
+    }
+    const items: Array<{ id: string; message: string; ticketId?: string }> = []
+    if (hasAdminPermission(myPermissions, 'approvals')) {
+      users.forEach((person) => {
+        if (person.is_approved !== false) return
+        items.push({ id: `approve-${person.id}`, message: `حساب ${person.full_name || 'مستخدم'} بانتظار الاعتماد.` })
+      })
+    }
+    if (hasAdminPermission(myPermissions, 'tickets')) {
+      tickets.forEach((ticket) => {
+        const no = formatTicketNo(ticket.ticket_number)
+        if (!ticket.assigned_to && isActive(ticket.status) && (ticket.priority === 'عاجل' || ticket.is_outage)) {
+          items.push({
+            id: `${ticket.id}-unassigned`,
+            message: ticket.is_outage ? `بلاغ تعطل قسم ${no} بلا فني.` : `بلاغ عاجل ${no} بلا فني.`,
+            ticketId: ticket.id
+          })
+        }
+        if (ticket.status === 'منجزة' && sameDay(ticket.resolved_at)) {
+          items.push({
+            id: `${ticket.id}-done-today`,
+            message: `أُنجز البلاغ ${no} اليوم.`,
+            ticketId: ticket.id
+          })
+        }
+      })
+    }
+    const unread = new Set(unreadNoticeIds(adminId, items.map((item) => item.id)))
+    const ordered = [...items.filter((item) => unread.has(item.id)), ...items.filter((item) => !unread.has(item.id))]
+    setAdminNotices(ordered.slice(0, 8))
+    setAdminUnread([...unread].some((id) => !adminAcked.current.has(id)))
+  }, [accessReady, adminId, users, tickets, sysSettings.email_alerts, myPermissions])
   const deptStats = useMemo(() => {
     const counts: Record<string, number> = {}
     tickets.forEach(t => {
@@ -653,22 +709,30 @@ export default function Page() {
           <button className="icon-btn menu-btn" aria-label="فتح القائمة" onClick={() => setMenu(true)}><Menu /></button>
           <div className="breadcrumbs"><span>لوحة الإدارة</span> <b>/</b> <strong>{activeTab}</strong></div>
           <div className="top-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {allowed('tickets') && (
+            {(allowed('tickets') || allowed('approvals')) && (
               <div style={{ position: 'relative' }}>
-                <button className="icon-btn" aria-label="التنبيهات" title="التنبيهات" aria-expanded={showAlerts} onClick={() => { setShowAlerts(!showAlerts); setShowProfileMenu(false) }} style={{ position: 'relative' }}>
+                <button className="icon-btn" aria-label="التنبيهات" title="التنبيهات" aria-expanded={showAlerts} onClick={() => { const next = !showAlerts; if (next) { adminNotices.forEach((item) => adminAcked.current.add(item.id)); rememberNotices(adminId, adminNotices.map((item) => item.id)); setAdminUnread(false) } setShowAlerts(next); setShowProfileMenu(false) }} style={{ position: 'relative' }}>
                   <Bell />
-                  {adminAlerts.length > 0 && <span className="bell-count">{adminAlerts.length}</span>}
+                  {adminUnread && <span style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, background: '#ef4444', borderRadius: '50%' }} />}
                 </button>
                 {showAlerts && (
                   <div className="alerts-menu">
-                    <strong>يحتاج متابعتك</strong>
-                    {adminAlerts.length === 0 ? (
-                      <p className="alerts-empty">لا توجد بلاغات متأخرة أو عاجلة.</p>
-                    ) : adminAlerts.map(({ ticket, reason }) => (
-                      <button key={ticket.id} type="button" onClick={() => { setShowAlerts(false); openAdminTicket(ticket) }}>
-                        <span className="ticket-no" style={ticketNoStyle}>{formatTicketNo(ticket.ticket_number)}</span>
-                        <span className="alerts-title">{ticket.title}</span>
-                        <small style={{ color: ticket.is_outage ? '#b45309' : '#ef4444' }}>{reason}</small>
+                    <strong>تنبيهات الإدارة</strong>
+                    {sysSettings.email_alerts === false ? (
+                      <p className="alerts-empty">تنبيهات البوابة متوقفة من إعدادات النظام.</p>
+                    ) : adminNotices.length === 0 ? (
+                      <p className="alerts-empty">لا توجد تنبيهات جديدة.</p>
+                    ) : adminNotices.map((notice) => (
+                      <button key={notice.id} type="button" onClick={() => {
+                        setShowAlerts(false)
+                        if (notice.ticketId) {
+                          const ticket = tickets.find((item) => item.id === notice.ticketId)
+                          if (ticket && allowed('tickets')) openAdminTicket(ticket)
+                        } else if (allowed('approvals')) {
+                          setActiveTab('الاعتمادات')
+                        }
+                      }}>
+                        <span className="alerts-title">{notice.message}</span>
                       </button>
                     ))}
                   </div>

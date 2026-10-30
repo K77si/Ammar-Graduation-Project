@@ -72,11 +72,15 @@ export default function TechnicianPage() {
   const [userEmail, setUserEmail] = useState('')
   const [userId, setUserId] = useState('')
   const userIdRef = useRef('')
+  const userNameRef = useRef('فني الدعم')
   const [notices, setNotices] = useState<Array<{ id: string; message: string }>>([])
+  const [noticeUnread, setNoticeUnread] = useState(false)
+  const noticeAcked = useRef(new Set<string>())
+  const heldNotices = useRef<Array<{ id: string; message: string }>>([])
   const [showNotices, setShowNotices] = useState(false)
   const [alertsOn, setAlertsOn] = useState(true)
   const openTicketId = useRef('')
-  const seenTickets = useRef<Map<string, { status: string; assigned: string }> | null>(null)
+  const seenTickets = useRef<Map<string, { status: string; assigned: string; delayed: boolean }> | null>(null)
   const { permission: notifyPermission, request: requestNotify } = useNotifyPermission()
   const [tickets, setTickets] = useState<TicketItem[]>([])
   const [names, setNames] = useState<Record<string, string>>({})
@@ -115,12 +119,14 @@ export default function TechnicianPage() {
     setRefreshNotice('')
     void closeStale(supabase)
 
-    const [{ data: ticketsData }, { data: profiles }, { data: settings }, { data: templateRows }, { data: sanadReplyRows }] = await Promise.all([
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const [{ data: ticketsData }, { data: profiles }, { data: settings }, { data: templateRows }, { data: sanadReplyRows }, { data: workEvents }] = await Promise.all([
       supabase.from('tickets').select('*').order('created_at', { ascending: false }),
       supabase.from('profiles').select('id, full_name, department, employee_number'),
       supabase.from('system_settings').select('email_alerts').eq('id', 'main_settings').maybeSingle(),
       supabase.from('reply_templates').select('id, body').order('sort_order', { ascending: true }),
-      supabase.from('ticket_events').select('ticket_id, note').ilike('note', 'سند · رد%')
+      supabase.from('ticket_events').select('ticket_id, note').ilike('note', 'سند · رد%'),
+      supabase.from('ticket_events').select('id, ticket_id, from_status, to_status, note, actor_name, created_at').gte('created_at', since).order('created_at', { ascending: false }).limit(200)
     ])
     const marks: Record<string, true> = {}
     ;(sanadReplyRows || []).forEach((row) => { if (row.ticket_id) marks[row.ticket_id] = true })
@@ -136,32 +142,95 @@ export default function TechnicianPage() {
       })
       setTickets(sortTickets(mapped))
       const uid = userIdRef.current
+      const myName = userNameRef.current
       const previous = seenTickets.current
-      if (previous && showAlerts) {
+      const ticketById = new Map(mapped.map((ticket) => [ticket.id, ticket]))
+      const workRows = workEvents || []
+      const bag: Array<{ id: string; message: string; rank: number }> = []
+      const push = (id: string, message: string, rank: number) => {
+        if (!id || bag.some((item) => item.id === id || item.message === message)) return
+        const twin = heldNotices.current.find((item) => item.message === message && item.id !== id)
+        if (twin && noticeAcked.current.has(twin.id)) {
+          noticeAcked.current.add(id)
+          rememberNotices(uid, [id])
+        }
+        bag.push({ id, message, rank })
+      }
+      const hold = (id: string, message: string) => {
+        if (!heldNotices.current.some((item) => item.id === id || item.message === message)) heldNotices.current.push({ id, message })
+        push(id, message, 1)
+      }
+      if (showAlerts) {
         mapped.forEach((ticket) => {
-          const before = previous.get(ticket.id)
           const no = formatTicketNo(ticket.ticket_number)
-          if (!before && ticket.status === 'مفتوحة' && (ticket.priority === 'عاجل' || ticket.is_outage)) {
-            notifyDesktop(ticket.is_outage ? `بلاغ تعطل قسم ${no}` : `بلاغ عاجل جديد ${no}`, ticket.title, `${ticket.id}-new`)
-          } else if (before && ticket.assigned_to === uid && before.assigned !== uid) {
-            notifyDesktop(`أُسند إليك البلاغ ${no}`, ticket.title, `${ticket.id}-assigned`)
-          } else if (before && ticket.assigned_to === uid && before.status === 'بانتظار الموظف' && ticket.status === 'قيد المعالجة') {
-            notifyDesktop(`ردّ الموظف على البلاغ ${no}`, ticket.title, `${ticket.id}-reply`)
+          const queued = ticket.status === 'مفتوحة' && !ticket.assigned_to && (ticket.priority === 'عاجل' || ticket.is_outage)
+          if (queued) {
+            const late = isDelayed(ticket)
+            push(
+              `${ticket.id}-urgent`,
+              ticket.is_outage
+                ? `بلاغ تعطل قسم ${no}${late ? ' بلا فني منذ أكثر من يوم' : ' بانتظار الاستلام'}.`
+                : `بلاغ عاجل ${no}${late ? ' بلا فني منذ أكثر من يوم' : ' بانتظار الاستلام'}.`,
+              0
+            )
+          } else if (isDelayed(ticket)) {
+            push(`${ticket.id}-delayed`, `بلاغ متأخر ${no} بلا فني منذ أكثر من يوم.`, 0)
           }
         })
+        workRows.forEach((event) => {
+          const ticket = ticketById.get(event.ticket_id)
+          if (!ticket || ticket.assigned_to !== uid || !isActive(ticket.status)) return
+          const note = event.note || ''
+          if (note.startsWith('سند · رد')) return
+          const plain = note.replace(/^سند · /, '')
+          const no = formatTicketNo(ticket.ticket_number)
+          if (plain.startsWith('الفني:')) {
+            const named = plain.slice('الفني:'.length).trim()
+            if (myName && named && named !== myName) return
+            push(`assign-${event.id}`, `أُسند إليك البلاغ ${no}.`, 1)
+            return
+          }
+          if (event.from_status === 'بانتظار الموظف' && event.to_status === 'قيد المعالجة' && event.actor_name !== myName) {
+            push(`return-${event.id}`, `ردّ الموظف على البلاغ ${no} وعاد للمعالجة.`, 2)
+          }
+        })
+        heldNotices.current.forEach((item) => push(item.id, item.message, 1))
+        if (previous) {
+          mapped.forEach((ticket) => {
+            const before = previous.get(ticket.id)
+            const no = formatTicketNo(ticket.ticket_number)
+            const urgent = ticket.priority === 'عاجل' || ticket.is_outage
+            if (!before && ticket.status === 'مفتوحة' && urgent && (!ticket.assigned_to || ticket.assigned_to === uid)) {
+              notifyDesktop(ticket.is_outage ? `بلاغ تعطل قسم ${no}` : `بلاغ عاجل جديد ${no}`, ticket.title, `${ticket.id}-new`)
+              if (ticket.assigned_to === uid) hold(`${ticket.id}-new`, ticket.is_outage ? `بلاغ تعطل قسم ${no} أُسند إليك.` : `بلاغ عاجل جديد ${no} أُسند إليك.`)
+            } else if (before && ticket.assigned_to === uid && before.assigned !== uid) {
+              notifyDesktop(`أُسند إليك البلاغ ${no}`, ticket.title, `${ticket.id}-assigned`)
+              const match = workRows.find((event) => event.ticket_id === ticket.id && (event.note || '').replace(/^سند · /, '').startsWith('الفني:'))
+              hold(match ? `assign-${match.id}` : `${ticket.id}-assigned-now`, `أُسند إليك البلاغ ${no}.`)
+            } else if (before && ticket.assigned_to === uid && before.status === 'بانتظار الموظف' && ticket.status === 'قيد المعالجة') {
+              const related = workRows.filter((event) => event.ticket_id === ticket.id && event.from_status === 'بانتظار الموظف' && event.to_status === 'قيد المعالجة')
+              const employeeDid = related.some((event) => event.actor_name !== myName && !(event.note || '').startsWith('سند · رد'))
+              const onlyOwn = related.length > 0 && !employeeDid
+              if (!onlyOwn) {
+                notifyDesktop(`ردّ الموظف على البلاغ ${no}`, ticket.title, `${ticket.id}-reply`)
+                const match = related.find((event) => event.actor_name !== myName && !(event.note || '').startsWith('سند · رد'))
+                hold(match ? `return-${match.id}` : `${ticket.id}-returned-now`, `ردّ الموظف على البلاغ ${no} وعاد للمعالجة.`)
+              }
+            } else if (before && isDelayed(ticket) && !before.delayed) {
+              notifyDesktop(`بلاغ متأخر ${no}`, 'بلا فني منذ أكثر من يوم.', `${ticket.id}-delayed`)
+            }
+          })
+        }
+        heldNotices.current = heldNotices.current.slice(-40)
+      } else {
+        heldNotices.current = []
       }
-      seenTickets.current = new Map(mapped.map((ticket) => [ticket.id, { status: ticket.status, assigned: ticket.assigned_to || '' }]))
-      const urgentQueue = mapped
-        .filter((ticket) => ticket.status === 'مفتوحة' && !ticket.assigned_to && (ticket.priority === 'عاجل' || ticket.is_outage))
-        .map((ticket) => ({
-          id: `${ticket.id}-urgent`,
-          message: `${ticket.is_outage ? 'بلاغ تعطل قسم' : 'بلاغ عاجل'} ${formatTicketNo(ticket.ticket_number)} بانتظار الاستلام.`
-        }))
-      const assigned = mapped.filter((ticket) => ticket.assigned_to === uid && isActive(ticket.status)).map((ticket) => ({
-        id: `${ticket.id}-${ticket.status}`,
-        message: `البلاغ ${formatTicketNo(ticket.ticket_number)} مُسند إليك، وحالته «${statusLabel(ticket.status)}».`
-      }))
-      setNotices(showAlerts ? unseenNotices(uid, [...urgentQueue, ...assigned].slice(0, 10)) : [])
+      seenTickets.current = new Map(mapped.map((ticket) => [ticket.id, { status: ticket.status, assigned: ticket.assigned_to || '', delayed: isDelayed(ticket) }]))
+      const fresh = showAlerts
+        ? unseenNotices(uid, bag.sort((a, b) => a.rank - b.rank).map(({ id, message }) => ({ id, message }))).slice(0, 8)
+        : []
+      setNotices(fresh)
+      setNoticeUnread(fresh.some((item) => !noticeAcked.current.has(item.id)))
     }
     if (profiles) {
       const map: Record<string, string> = {}
@@ -206,7 +275,8 @@ export default function TechnicianPage() {
         window.location.href = profile.role === 'admin' ? '/' : '/employee'
         return
       }
-      setUserName(profile.full_name || 'فني الدعم')
+      userNameRef.current = profile.full_name || 'فني الدعم'
+      setUserName(userNameRef.current)
       setWorkerNumber(profile.employee_number || '')
       setAvailability(profile.availability || 'متاح')
       setReady(true)
@@ -371,14 +441,14 @@ export default function TechnicianPage() {
           <div className="breadcrumbs"><span>لوحة الفني</span> <b>/</b> <strong>{activeTab}</strong></div>
           <div className="top-actions">
             <div style={{ position: 'relative' }}>
-              <button className="icon-btn" aria-label="التنبيهات" onClick={() => { const next = !showNotices; if (next) rememberNotices(userId, notices.map((item) => item.id)); setShowNotices(next) }} title="التنبيهات"><Bell /></button>
-              {notices.length > 0 && <span style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, background: '#ef4444', borderRadius: '50%' }} />}
+              <button className="icon-btn" aria-label="التنبيهات" onClick={() => { const next = !showNotices; if (next) { notices.forEach((item) => noticeAcked.current.add(item.id)); rememberNotices(userId, notices.map((item) => item.id)); setNoticeUnread(false) } setShowNotices(next) }} title="التنبيهات"><Bell /></button>
+              {noticeUnread && <span style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, background: '#ef4444', borderRadius: '50%' }} />}
               {showNotices && (
                 <div style={{ position: 'absolute', left: 0, top: '46px', background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '12px', width: '280px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 100, padding: '12px' }}>
-                  <strong style={{ display: 'block', fontSize: '13px', marginBottom: '8px' }}>البلاغات التي أعمل عليها</strong>
+                  <strong style={{ display: 'block', fontSize: '13px', marginBottom: '8px' }}>تنبيهات العمل</strong>
                   <DesktopNotifyStatus permission={notifyPermission} onEnable={requestNotify} />
                   {notices.length === 0 ? (
-                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>{alertsOn ? 'لا توجد بلاغات تعمل عليها حالياً.' : 'تنبيهات البوابة متوقفة من إعدادات النظام.'}</div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>{alertsOn ? 'لا توجد تنبيهات جديدة.' : 'تنبيهات البوابة متوقفة من إعدادات النظام.'}</div>
                   ) : notices.map((notice) => (
                     <div key={notice.id} style={{ fontSize: '12px', padding: '8px', background: 'var(--field)', borderRadius: '6px', marginBottom: '6px' }}>{notice.message}</div>
                   ))}

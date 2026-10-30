@@ -2,10 +2,7 @@ export function unseenNotices<T extends { id: string }>(userId: string, items: T
   if (!userId || typeof window === 'undefined') return items
   const key = `sanad-seen:${userId}`
   const raw = localStorage.getItem(key)
-  if (raw === null) {
-    localStorage.setItem(key, JSON.stringify(items.map((item) => item.id)))
-    return []
-  }
+  if (raw === null) return items
   let seen: string[] = []
   try {
     const parsed = JSON.parse(raw)

@@ -17,7 +17,7 @@ import { loadTicketThread, readTicketMeta, sendTicketReply, subscribeTicketChang
 import { loadTicketEvents } from '@/lib/ticket-events'
 import { DesktopNotifyStatus, notifyDesktop, useNotifyPermission } from '@/lib/desktop-notify'
 import { useTheme } from '@/lib/theme'
-import { FAULT_TYPES, closeStale, isActive, quickTips, sortTickets, suggestFault, ticketAction } from '@/lib/workflow'
+import { FAULT_TYPES, closeStale, isActive, quickTips, sortTickets, suggestFault, ticketAction, withinDays } from '@/lib/workflow'
 import { browserSupabase } from '@/lib/supabase-browser'
 
 const supabase = browserSupabase()
@@ -80,6 +80,9 @@ export default function EmployeePage() {
   const [listFilter, setListFilter] = useState<'الكل' | 'لم تُغلق' | 'مغلقة'>('الكل')
   const [portalView, setPortalView] = useState<'اسأل سند' | 'البلاغات'>('البلاغات')
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
+  const [noticeUnread, setNoticeUnread] = useState(false)
+  const noticeAcked = useRef(new Set<string>())
+  const seenReplyIds = useRef<Set<string> | null>(null)
   const [showNotifMenu, setShowNotifMenu] = useState(false)
   
   // شريط الإشعارات المتحرك العلوي
@@ -172,49 +175,98 @@ export default function EmployeePage() {
     if (previous && showAlerts) {
       scoped.forEach((ticket) => {
         const before = previous.get(ticket.id)
-        if (ticket.user_id !== uid || !before || before === ticket.status) return
         const no = formatTicketNo(ticket.ticket_number)
-        if (ticket.status === 'بانتظار الموظف') notifyDesktop(`الفني بانتظار ردك على البلاغ ${no}`, ticket.title, `${ticket.id}-waiting`)
-        if (ticket.status === 'منجزة') notifyDesktop(`تم إنجاز بلاغك ${no}`, 'افتح البلاغ وأكّد الإغلاق إذا حُلّت المشكلة.', `${ticket.id}-done`)
+        if (ticket.user_id === uid) {
+          if (!before || before === ticket.status) return
+          if (ticket.status === 'بانتظار الموظف') notifyDesktop(`الفني بانتظار ردك على البلاغ ${no}`, ticket.title, `${ticket.id}-waiting`)
+          if (ticket.status === 'منجزة') notifyDesktop(`تم إنجاز بلاغك ${no}`, 'افتح البلاغ وأكّد الإغلاق إذا حُلّت المشكلة.', `${ticket.id}-done`)
+          if (ticket.status === 'ملغاة') notifyDesktop(`أُلغي البلاغ ${no}`, ticket.title, `${ticket.id}-cancelled`)
+          return
+        }
+        if (!head) return
+        if (!before && ticket.is_outage && (ticket.status === 'مفتوحة' || ticket.status === 'قيد المعالجة')) {
+          notifyDesktop(`تعطل في قسمك ${no}`, ticket.title, `${ticket.id}-outage`)
+        } else if (before && before !== ticket.status) {
+          if (ticket.status === 'بانتظار الموظف') notifyDesktop(`البلاغ ${no} بانتظار رد موظف القسم`, ticket.title, `${ticket.id}-dept-wait`)
+          if (ticket.status === 'منجزة') notifyDesktop(`أُنجز بلاغ القسم ${no}`, ticket.title, `${ticket.id}-dept-done`)
+        }
       })
     }
     seenStatuses.current = new Map(scoped.map((ticket) => [ticket.id, ticket.status]))
 
     const notices: NotificationItem[] = []
-    if (showAlerts && scoped.length > 0) {
-      const mapped = scoped
-      mapped.forEach((ticket) => {
-        if (ticket.user_id !== uid) return
+    if (showAlerts) {
+      scoped.forEach((ticket) => {
         const no = formatTicketNo(ticket.ticket_number)
-        const message = ticket.status === 'بانتظار الموظف'
-          ? `الفني بانتظار ردك على البلاغ ${no}.`
-          : ticket.status === 'منجزة'
-            ? `تم إنجاز بلاغك ${no}.`
-            : ticket.status === 'ملغاة'
-              ? `أُلغي البلاغ ${no}.`
-              : ''
-        if (!message) return
-        notices.push({
-          id: `${ticket.id}-${ticket.status}`,
-          message,
-          created_at: ticket.resolved_at || ticket.closed_at || ticket.created_at,
-          read: false
-        })
+        if (ticket.user_id === uid) {
+          const message = ticket.status === 'بانتظار الموظف'
+            ? `الفني بانتظار ردك على البلاغ ${no}.`
+            : ticket.status === 'منجزة'
+              ? `تم إنجاز بلاغك ${no}.`
+              : ticket.status === 'ملغاة'
+                ? `أُلغي البلاغ ${no}.`
+                : ''
+          if (!message) return
+          notices.push({
+            id: `${ticket.id}-${ticket.status}`,
+            message,
+            created_at: ticket.resolved_at || ticket.closed_at || ticket.created_at,
+            read: false
+          })
+          return
+        }
+        if (!head) return
+        if (ticket.status === 'بانتظار الموظف') {
+          notices.push({
+            id: `${ticket.id}-dept-wait`,
+            message: `البلاغ ${no} بانتظار رد موظف القسم.`,
+            created_at: ticket.created_at,
+            read: false
+          })
+        } else if (ticket.status === 'منجزة' && withinDays(ticket.resolved_at || ticket.closed_at, 1)) {
+          notices.push({
+            id: `${ticket.id}-dept-done`,
+            message: `أُنجز بلاغ القسم ${no}.`,
+            created_at: ticket.resolved_at || ticket.closed_at || ticket.created_at,
+            read: false
+          })
+        } else if (ticket.is_outage && (ticket.status === 'مفتوحة' || ticket.status === 'قيد المعالجة')) {
+          notices.push({
+            id: `${ticket.id}-dept-outage`,
+            message: `تعطل في قسمك: البلاغ ${no}.`,
+            created_at: ticket.created_at,
+            read: false
+          })
+        }
       })
-      const { data: replies } = await supabase.from('ticket_replies').select('id, ticket_id, sender_name, created_at').in('ticket_id', mapped.map((ticket) => ticket.id)).order('created_at', { ascending: false })
-      ;(replies || []).forEach((reply) => {
-        if (reply.sender_name === userNameRef.current) return
-        const ticket = mapped.find((item) => item.id === reply.ticket_id)
-        notices.push({
-          id: reply.id,
-          message: `رد جديد على البلاغ ${formatTicketNo(ticket?.ticket_number)} من ${reply.sender_name}.`,
-          created_at: reply.created_at,
-          read: false
+      const ownIds = scoped.filter((ticket) => ticket.user_id === uid).map((ticket) => ticket.id)
+      if (ownIds.length > 0) {
+        const { data: replies } = await supabase.from('ticket_replies').select('id, ticket_id, sender_name, created_at').in('ticket_id', ownIds).order('created_at', { ascending: false })
+        const knownReplies = seenReplyIds.current
+        const nextReplies = new Set<string>()
+        ;(replies || []).forEach((reply) => {
+          nextReplies.add(reply.id)
+          if (reply.sender_name === userNameRef.current) return
+          const ticket = scoped.find((item) => item.id === reply.ticket_id)
+          if (knownReplies && !knownReplies.has(reply.id)) {
+            notifyDesktop(`رد جديد على البلاغ ${formatTicketNo(ticket?.ticket_number)}`, `من ${reply.sender_name}.`, reply.id)
+          }
+          notices.push({
+            id: reply.id,
+            message: `رد جديد على البلاغ ${formatTicketNo(ticket?.ticket_number)} من ${reply.sender_name}.`,
+            created_at: reply.created_at,
+            read: false
+          })
         })
-      })
+        seenReplyIds.current = nextReplies
+      }
+      const fresh = unseenNotices(uid, notices.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))).slice(0, 8)
+      setNotifications(fresh)
+      setNoticeUnread(fresh.some((item) => !noticeAcked.current.has(item.id)))
+    } else {
+      setNotifications([])
+      setNoticeUnread(false)
     }
-    const fresh = unseenNotices(uid, notices.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)).slice(0, 8))
-    setNotifications(fresh)
 
     if (!silent) setLoading(false)
   }
@@ -512,9 +564,9 @@ export default function EmployeePage() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ position: 'relative' }}>
-            <button onClick={() => { const next = !showNotifMenu; if (next) rememberNotices(userId, notifications.map((item) => item.id)); setShowNotifMenu(next) }} aria-label="التنبيهات" title="التنبيهات" style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '10px', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text)', position: 'relative' }}>
+            <button onClick={() => { const next = !showNotifMenu; if (next) { notifications.forEach((item) => noticeAcked.current.add(item.id)); rememberNotices(userId, notifications.map((item) => item.id)); setNoticeUnread(false) } setShowNotifMenu(next) }} aria-label="التنبيهات" title="التنبيهات" style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '10px', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text)', position: 'relative' }}>
               <Bell size={18} />
-              {notifications.length > 0 && <span style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, background: '#ef4444', borderRadius: '50%' }}></span>}
+              {noticeUnread && <span style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, background: '#ef4444', borderRadius: '50%' }}></span>}
             </button>
             {showNotifMenu && (
               <div style={{ position: 'absolute', left: 0, top: '48px', background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '12px', width: '280px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', zIndex: 1000, padding: '12px' }}>
