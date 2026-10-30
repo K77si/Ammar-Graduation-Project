@@ -1437,7 +1437,7 @@ function ProgressBar({ label, count, total, color }: { label: string, count: num
   const width = total > 0 ? Math.round((count / total) * 100) : 0
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}><span>{label}</span><b>{count}</b></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}><span>{label}</span><b>العدد: {count}</b></div>
       <div style={{ width: '100%', height: '8px', background: 'rgba(139, 92, 246, 0.1)', borderRadius: '4px', overflow: 'hidden' }}>
         <div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: '4px' }}></div>
       </div>
