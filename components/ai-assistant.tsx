@@ -353,7 +353,7 @@ export function AiAssistant({
     ? 'نص الرد للموظف'
     : step === 'body' && draft?.intent === 'info'
       ? 'المعلومة المطلوبة من الموظف'
-      : (STEP_HINT[step] || (compact ? 'اكتب ماذا تريد على هذا البلاغ' : 'اكتب طلبك بلغتك'))
+      : (STEP_HINT[step] || (compact ? 'اكتب لسند الإجراء، مثل: اطلب رقم الجهاز' : 'اكتب طلبك بلغتك'))
   const secretStep = step === 'password'
   const choices = reply?.choices || []
   const listed = choices.filter((choice) => choice.id !== 'cancel')
@@ -366,7 +366,15 @@ export function AiAssistant({
 
   return (
     <section className={`ai-gemini ${compact ? 'ai-gemini-compact' : ''}`}>
-      {!compact && (
+      {compact ? (
+        <div className="ai-ticket-head">
+          <span className="ai-gemini-mark" aria-hidden="true"><SanadMark size={20} /></span>
+          <div>
+            <strong>سند</strong>
+            <p>هذا الصندوق لسند، مو للرد على الموظف. تكتب الإجراء بكلامك على هذا البلاغ، يتأكد منك، ثم ينفّذه ويسجّله في السجل.</p>
+          </div>
+        </div>
+      ) : (
         <div className="ai-gemini-intro">
           <span className="ai-gemini-mark" aria-hidden="true"><SanadMark size={26} /></span>
           <p>{intro}</p>
@@ -488,7 +496,7 @@ export function AiAssistant({
       {!guiding && shownGroups.map((group) => (
         <div key={group} className="ai-gemini-group">
           {reply && group === shownGroups[0] && <p className="ai-gemini-again">خدمة أخرى</p>}
-          <p className="ai-gemini-group-label">{group}</p>
+          <p className="ai-gemini-group-label">{compact ? 'أو اختر إجراءً' : group}</p>
           <div className="ai-gemini-prompts">
             {prompts.filter((prompt) => prompt.group === group).map((prompt) => (
               <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>

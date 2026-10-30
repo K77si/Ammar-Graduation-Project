@@ -44,7 +44,7 @@ function Tools({ ticket, actor, userId, technicians, events, notes, busy, onRun,
 
   return (
     <div className="ticket-tools" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '1rem' }}>
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px' }}>
+      <div className="ticket-facts">
         <Chip label="الأهمية" value={ticket.priority || 'عادي'} tone={ticket.priority === 'عاجل' ? 'danger' : undefined} />
         {ticket.is_outage && <Chip label="النوع" value="بلاغ قسم" tone="warn" />}
         {ticket.is_private && <Chip label="الخصوصية" value="خاص (لا يطّلع عليه رئيس القسم)" />}

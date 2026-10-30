@@ -554,21 +554,29 @@ export default function TechnicianPage() {
 
       {selectedTicket && (
         <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedTicket(null) }} style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '640px', maxHeight: '85vh', overflowY: 'auto', color: 'var(--text)' }}>
-            <div className="modal-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <div>
-                <span className="ticket-no" style={{ ...ticketNoStyle, display: 'block', marginBottom: '4px' }}>{formatTicketNo(selectedTicket.ticket_number)}</span>
+          <div style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '720px', maxHeight: '85vh', overflowY: 'auto', color: 'var(--text)' }}>
+            <div className="modal-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem', gap: '12px' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                  <span className="ticket-no" style={ticketNoStyle}>{formatTicketNo(selectedTicket.ticket_number)}</span>
+                  <StatusBadge status={selectedTicket.status} />
+                  {asRating(selectedTicket.rating) !== null && <span style={{ background: 'var(--field)', padding: '4px 8px', borderRadius: '8px', fontSize: '12px' }}><b>التقييم:</b> {asRating(selectedTicket.rating)}/5</span>}
+                </div>
                 <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>{selectedTicket.title}</h3>
               </div>
               <button onClick={() => setSelectedTicket(null)} aria-label="إغلاق" title="إغلاق" style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={20} /></button>
             </div>
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '1rem', fontSize: '13px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>مقدّم البلاغ:</b> {raiserName(selectedTicket)}</span>
-              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>رقم الموظف:</b> <span dir="ltr">{selectedTicket.user_id ? (staffNumbers[selectedTicket.user_id] || '—') : '—'}</span></span>
-              <StatusBadge status={selectedTicket.status} />
-              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>يعمل عليها:</b> {workerName(selectedTicket)}</span>
-              <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>الوقت:</b> {formatTicketWhen(selectedTicket.created_at)}</span>
-              {asRating(selectedTicket.rating) !== null && <span style={{ background: 'var(--field)', padding: '6px 12px', borderRadius: '8px' }}><b>التقييم:</b> {asRating(selectedTicket.rating)}/5</span>}
+            <div className="ticket-meta">
+              <div>
+                <b>مقدّم البلاغ</b>
+                <span>{raiserName(selectedTicket)}</span>
+                <small>رقم الموظف <b dir="ltr" style={{ color: '#7c3aed' }}>{selectedTicket.user_id ? (staffNumbers[selectedTicket.user_id] || '—') : '—'}</b></small>
+              </div>
+              <div>
+                <b>يعمل عليها</b>
+                <span>{workerName(selectedTicket)}</span>
+                <small>{formatTicketWhen(selectedTicket.created_at)}</small>
+              </div>
             </div>
             {actionMsg && <p style={{ fontSize: '13px', margin: '0 0 10px', color: actionMsg.startsWith('تم') ? '#10b981' : '#ef4444' }}>{actionMsg}</p>}
             <TicketTools ticket={selectedTicket} actor="technician" userId={userId} technicians={[]} events={events} notes={notes} busy={savingStatus} resolutionDraft={resolutionDraft} onRun={async (action, payload) => {
@@ -585,7 +593,7 @@ export default function TechnicianPage() {
               fetchQueue(true)
             }} />
             {similarSolved.length > 0 && (
-              <details className="fold" open style={{ border: '1px solid rgba(16, 185, 129, 0.35)', borderRadius: '10px', padding: '10px 12px', margin: '12px 0' }}>
+              <details className="fold" style={{ border: '1px solid rgba(16, 185, 129, 0.35)', borderRadius: '10px', padding: '10px 12px', margin: '0 0 12px' }}>
                 <summary>حلول بلاغات مشابهة ({similarSolved.length})</summary>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
                   {similarSolved.map((ticket) => (
@@ -610,8 +618,9 @@ export default function TechnicianPage() {
             {selectedTicket.status !== 'مغلقة' && selectedTicket.status !== 'ملغاة' && (
               <AiAssistant key={selectedTicket.id} supabase={supabase} mode="technician" compact ticketId={selectedTicket.id} onTicketsChanged={() => { void fetchQueue(true); void openTicket(selectedTicket) }} />
             )}
-            <div>
-              <h4 style={{ fontSize: '14px', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} /> المحادثة</h4>
+            <div className="ticket-reply">
+              <h4 style={{ fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} /> الرد على الموظف</h4>
+              <p className="ticket-reply-note">{selectedTicket.status === 'مغلقة' || selectedTicket.status === 'ملغاة' ? 'سجل الردود مع مقدّم البلاغ.' : 'هذه الرسالة تصل لمقدّم البلاغ. صندوق سند فوق لتنفيذ الإجراء بكلامك.'}</p>
               <TicketConversation requester={raiserName(selectedTicket)} problem={selectedTicket.title} messages={ticketReplies} />
               {(selectedTicket.status === 'مغلقة' || selectedTicket.status === 'ملغاة') ? (
                 <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>البلاغ {statusLabel(selectedTicket.status)}، ولا يمكن إضافة ردود عليه.</p>

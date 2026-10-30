@@ -633,6 +633,64 @@ details.fold[open] > summary::after {
   background: rgba(139, 92, 246, 0.12) !important;
 }
 
+.ticket-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.ticket-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.ticket-meta > div {
+  min-width: 0;
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.ticket-meta > div > b {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ticket-meta span,
+.ticket-meta small {
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ticket-meta small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.ticket-reply h4 {
+  margin: 0 0 4px;
+}
+
+.ticket-reply .ticket-reply-note {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 @keyframes modal-fade {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -781,8 +839,61 @@ details.fold[open] > summary::after {
 
 .ai-gemini-compact {
   width: 100%;
-  margin: 0 0 16px;
+  margin: 4px 0 16px;
   gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(139, 92, 246, 0.32);
+  background:
+    radial-gradient(420px 120px at 100% 0%, rgba(139, 92, 246, 0.16), transparent 62%),
+    var(--field);
+}
+
+.ai-ticket-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ai-ticket-head strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.ai-ticket-head p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+.ai-ticket-head .ai-gemini-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  box-shadow: 0 8px 16px rgba(124, 58, 237, 0.28);
+}
+
+.ai-gemini-compact .ai-gemini-bar {
+  min-height: 52px;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(120deg, #c4b5fd, #8b5cf6, #6366f1) border-box;
+}
+
+.ai-gemini-compact .ai-gemini-prompts {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-gemini-compact .ai-gemini-prompts button {
+  width: auto;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
 }
 
 .ai-gemini-intro {
