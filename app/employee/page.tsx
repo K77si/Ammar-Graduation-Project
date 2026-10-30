@@ -184,14 +184,22 @@ export default function EmployeePage() {
     if (showAlerts && scoped.length > 0) {
       const mapped = scoped
       mapped.forEach((ticket) => {
-        if (ticket.status !== 'مفتوحة') {
-          notices.push({
-            id: `${ticket.id}-${ticket.status}`,
-            message: `تغيّرت حالة البلاغ ${formatTicketNo(ticket.ticket_number)} إلى «${statusLabel(ticket.status)}».`,
-            created_at: ticket.created_at,
-            read: false
-          })
-        }
+        if (ticket.user_id !== uid) return
+        const no = formatTicketNo(ticket.ticket_number)
+        const message = ticket.status === 'بانتظار الموظف'
+          ? `الفني بانتظار ردك على البلاغ ${no}.`
+          : ticket.status === 'منجزة'
+            ? `تم إنجاز بلاغك ${no}.`
+            : ticket.status === 'ملغاة'
+              ? `أُلغي البلاغ ${no}.`
+              : ''
+        if (!message) return
+        notices.push({
+          id: `${ticket.id}-${ticket.status}`,
+          message,
+          created_at: ticket.resolved_at || ticket.closed_at || ticket.created_at,
+          read: false
+        })
       })
       const { data: replies } = await supabase.from('ticket_replies').select('id, ticket_id, sender_name, created_at').in('ticket_id', mapped.map((ticket) => ticket.id)).order('created_at', { ascending: false })
       ;(replies || []).forEach((reply) => {
