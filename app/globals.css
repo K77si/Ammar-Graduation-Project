@@ -617,6 +617,22 @@ details.fold > summary {
   font-weight: 700;
   font-size: 13px;
   list-style: none;
+  outline: none;
+}
+
+details.fold > summary::-webkit-details-marker,
+details.fold > summary::marker {
+  content: '';
+  display: none;
+}
+
+.ticket-solutions {
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 1rem;
+  font-size: 13px;
 }
 
 details.fold > summary::after {

@@ -801,8 +801,8 @@ export default function EmployeePage() {
             )}
             {outageMode && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 1rem', lineHeight: 1.7 }}>يصل للدعم التقني عاجلاً، ويراه موظفو {headDepartment}.</p>}
             {!outageMode && matchedFaqs.length === 0 && faqs.length > 0 && (
-              <details style={{ background: 'var(--field)', borderRadius: '8px', padding: '10px 12px', marginBottom: '1rem', fontSize: '13px' }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 700 }}>كل الحلول المعتمدة ({faqs.length})</summary>
+              <details className="fold ticket-solutions">
+                <summary>حلول قد تغنيك عن البلاغ ({faqs.length})</summary>
                 {faqs.map((item) => (
                   <p key={item.id} style={{ margin: '8px 0 0', color: 'var(--text-muted)', lineHeight: 1.7 }}><b style={{ color: 'var(--text)' }}>{item.title}: </b>{item.body}</p>
                 ))}
