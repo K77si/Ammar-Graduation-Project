@@ -166,9 +166,14 @@ function Tools({ ticket, actor, userId, technicians, events, notes, busy, onRun,
   )
 }
 
+function isSanadQuestion(note?: string | null) {
+  return (note || '').startsWith('سند · سؤال')
+}
+
 export function TicketHistory({ events }: { events: EventRow[] }) {
+  const logged = events.filter((event) => !isSanadQuestion(event.note))
   const [origin, setOrigin] = useState<'الكل' | 'يدوي' | 'سند'>('الكل')
-  const visible = events.filter((event) => origin === 'الكل' || originOf(event.source, event.note) === origin)
+  const visible = logged.filter((event) => origin === 'الكل' || originOf(event.source, event.note) === origin)
   const rows: Array<EventRow & { extra?: string }> = []
   for (const event of visible) {
     const previous = rows[rows.length - 1]
@@ -179,10 +184,10 @@ export function TicketHistory({ events }: { events: EventRow[] }) {
     }
     rows.push({ ...event })
   }
-  if (events.length === 0) return null
+  if (logged.length === 0) return null
   return (
     <div style={{ marginTop: '1rem' }}>
-      <Fold title={`سجل البلاغ (${events.length})`}>
+      <Fold title={`سجل البلاغ (${logged.length})`}>
         <OriginFilter value={origin} onChange={setOrigin} />
         {rows.length === 0 ? <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>لا توجد عمليات بهذا التصنيف.</p> : [...rows].reverse().map((event) => (
           <p key={event.id} style={{ margin: '2px 0', fontSize: '12px', color: '#64748b', lineHeight: 1.8 }}>

@@ -36,23 +36,6 @@ export async function logSanadReply(input: { ticketId: string; actorName: string
   })
 }
 
-export async function logSanadQuestion(input: {
-  ticketId: string
-  actorName: string
-  status?: string | null
-  question: string
-}) {
-  const body = input.question.replace(/\s+/g, ' ').trim().slice(0, 180)
-  if (body.length < 5) return
-  await insertEvent({
-    ticket_id: input.ticketId,
-    actor_name: input.actorName,
-    from_status: input.status || null,
-    to_status: input.status || null,
-    note: `سند · سؤال: ${body}`
-  })
-}
-
 export async function markTicketOpenedBySanad(ticketId: string, actorId: string) {
   const db = serviceClient()
   const { data: ticket } = await db.from('tickets').select('id, user_id, created_at').eq('id', ticketId).maybeSingle()

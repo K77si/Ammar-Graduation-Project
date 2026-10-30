@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { canManage, isOwner, serviceClient, type Actor } from '@/lib/server-auth'
 import { writeAudit } from '@/lib/audit'
-import { logSanadQuestion, logSanadReply, tagRecentTicketEvents } from '@/lib/sanad-log'
+import { logSanadReply, tagRecentTicketEvents } from '@/lib/sanad-log'
 import { FAULT_TYPES, isActive } from '@/lib/workflow'
 import { similarity, normalizeArabic } from '@/lib/similar'
 import { readTicketMeta } from '@/lib/ticket-thread'
@@ -1319,43 +1319,6 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
   return say('هذا الإجراء غير معروف.')
 }
 
-async function traceQuestion(actor: Actor, request: Request, desk: Desk, input: DeskInput) {
-  if (input.confirm || input.draft?.intent || input.choice) return
-  const question = input.question.trim()
-  if (question.length < 5 || question === 'تأكيد') return
-  let ticketId = input.ticketId || ''
-  let status: string | null = null
-  const client = asUser(request)
-  if (ticketId) {
-    const { data } = await client.from('tickets').select('id, status').eq('id', ticketId).maybeSingle()
-    if (!data?.id) return
-    status = (data.status as string) || null
-  } else {
-    const number = question.match(/(\d{3,})/)
-    if (!number) return
-    const local = ticketByNumber(desk, number[1])
-    if (local) {
-      ticketId = local.id
-      status = local.status
-    } else {
-      const { data } = await client.from('tickets').select('id, status').eq('ticket_number', Number(number[1])).maybeSingle()
-      if (!data?.id) return
-      ticketId = data.id as string
-      status = (data.status as string) || null
-    }
-  }
-  await logSanadQuestion({ ticketId, actorName: desk.names.get(actor.id) || 'مستخدم', status, question })
-}
-
-async function recordListedQuestions(desk: Desk, actor: Actor, question: string) {
-  if (question.match(/(\d{3,})/)) return
-  const rows = rowsForQuestion(desk, actor, question).slice(0, 8)
-  const actorName = desk.names.get(actor.id) || 'مستخدم'
-  for (const row of rows) {
-    await logSanadQuestion({ ticketId: row.id, actorName, status: row.status, question })
-  }
-}
-
 export async function interpret(actor: Actor, request: Request, input: DeskInput): Promise<DeskOutcome> {
   const desk = await loadDesk(actor)
   const question = input.question.trim()
@@ -1364,7 +1327,6 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
     return { type: 'reply', reply: say('لا ترسل كلمة المرور داخل الرسالة. احذفها، وتغييرها يكون من صفحة الدخول أو من مدير النظام.') }
   }
   if (input.choice === 'cancel') return { type: 'reply', reply: say('تم إلغاء الأمر.', { draft: null }) }
-  await traceQuestion(actor, request, desk, input)
   if (input.confirm?.action) {
     return { type: 'reply', reply: await execute(actor, request, desk, input.confirm.action, input.confirm.payload || {}) }
   }
@@ -1388,7 +1350,6 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
     return { type: 'help', preface: helpPreface(desk, actor, question), facts }
   }
   if (ticketQuestion(question) || /عطل جماعي|متأخر/.test(question)) {
-    await recordListedQuestions(desk, actor, question)
     return { type: 'reply', reply: answerTickets(desk, actor, question) }
   }
   const facts = answerTickets(desk, actor, role === 'department_head' || role === 'user' ? 'بلاغاتي المفتوحة' : 'وش عندنا تذاكر اليوم والمفتوحة').answer
