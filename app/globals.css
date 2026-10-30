@@ -633,6 +633,20 @@ details.fold[open] > summary::after {
   background: rgba(139, 92, 246, 0.12) !important;
 }
 
+.sanad-reply-mark {
+  display: inline-flex;
+  align-items: center;
+  color: #6d28d9;
+  background: rgba(139, 92, 246, 0.14);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-weight: 800;
+}
+
+.dark .sanad-reply-mark {
+  color: #ddd6fe;
+}
+
 .ticket-facts {
   display: flex;
   flex-wrap: wrap;
@@ -1008,7 +1022,28 @@ details.fold[open] > summary::after {
 .ai-thread {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+}
+
+.ai-turn {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.ai-turn-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: #7c3aed;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dark .ai-turn-who {
+  color: #ddd6fe;
 }
 
 .ai-thread-q,
@@ -1032,6 +1067,11 @@ details.fold[open] > summary::after {
   background: var(--field);
   border: 1px solid var(--border);
   color: var(--text);
+}
+
+.ai-thread-a p {
+  margin: 0;
+  white-space: pre-line;
 }
 
 .ai-gemini-prompts button {
@@ -1252,14 +1292,15 @@ details.fold[open] > summary::after {
 
 .ai-box-actions {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
 .ai-box-actions .ai-primary,
 .ai-box-actions .ai-ghost {
-  width: 100%;
+  width: auto;
   text-align: start;
 }
 

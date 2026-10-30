@@ -53,6 +53,7 @@ const MENUS: Record<Persona, Chip[]> = {
   technician: [
     { group: 'الطابور', label: 'من أين أبدأ', question: 'أبدأ بأي بلاغ' },
     { group: 'الطابور', label: 'بلاغاتي', question: 'بلاغاتي المسندة' },
+    { group: 'الطابور', label: 'التذاكر الفعالة', question: 'وش عندنا بلاغات فعالة' },
     { group: 'الطابور', label: 'بانتظار الاستلام', question: 'البلاغات بانتظار الاستلام' },
     { group: 'الطابور', label: 'المتأخرة', question: 'البلاغات المتأخرة' },
     { group: 'الطابور', label: 'تسليم الوردية', question: 'تسليم الوردية' },
@@ -423,9 +424,12 @@ export function AiAssistant({
       {!compact && thread.length > 0 && (
         <div className="ai-thread">
           {thread.map((turn, index) => (
-            <div key={`${turn.q}-${index}`}>
+            <div key={`${turn.q}-${index}`} className="ai-turn">
               <p className="ai-thread-q">{turn.q}</p>
-              <p className="ai-thread-a">{turn.a}</p>
+              <div className="ai-thread-a">
+                <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
+                <p>{turn.a}</p>
+              </div>
             </div>
           ))}
         </div>
@@ -433,6 +437,7 @@ export function AiAssistant({
 
       {reply && (
         <div className="ai-box-reply">
+          <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
           <p>{reply.answer}</p>
           {reply.steps.length > 0 && (
             <ol>

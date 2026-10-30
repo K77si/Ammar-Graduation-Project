@@ -26,6 +26,16 @@ export async function tagRecentTicketEvents(ticketId: string) {
   }
 }
 
+export async function logSanadReply(input: { ticketId: string; actorName: string; status?: string | null }) {
+  await insertEvent({
+    ticket_id: input.ticketId,
+    actor_name: input.actorName,
+    from_status: input.status || null,
+    to_status: input.status || null,
+    note: 'سند · رد على الموظف'
+  })
+}
+
 export async function logSanadQuestion(input: {
   ticketId: string
   actorName: string

@@ -104,6 +104,7 @@ export default function TechnicianPage() {
   const [templates, setTemplates] = useState<Array<{ id: string; body: string }>>([])
   const [events, setEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; source?: string | null; created_at: string }>>([])
   const [notes, setNotes] = useState<Array<{ id: string; author_name: string; body: string; created_at: string }>>([])
+  const [sanadReplied, setSanadReplied] = useState<Record<string, true>>({})
 
 
   const fetchQueue = async (silent = false) => {
@@ -114,12 +115,16 @@ export default function TechnicianPage() {
     setRefreshNotice('')
     void closeStale(supabase)
 
-    const [{ data: ticketsData }, { data: profiles }, { data: settings }, { data: templateRows }] = await Promise.all([
+    const [{ data: ticketsData }, { data: profiles }, { data: settings }, { data: templateRows }, { data: sanadReplyRows }] = await Promise.all([
       supabase.from('tickets').select('*').order('created_at', { ascending: false }),
       supabase.from('profiles').select('id, full_name, department, employee_number'),
       supabase.from('system_settings').select('email_alerts').eq('id', 'main_settings').maybeSingle(),
-      supabase.from('reply_templates').select('id, body').order('sort_order', { ascending: true })
+      supabase.from('reply_templates').select('id, body').order('sort_order', { ascending: true }),
+      supabase.from('ticket_events').select('ticket_id, note').ilike('note', 'سند · رد%')
     ])
+    const marks: Record<string, true> = {}
+    ;(sanadReplyRows || []).forEach((row) => { if (row.ticket_id) marks[row.ticket_id] = true })
+    setSanadReplied(marks)
     if (templateRows) setTemplates(templateRows)
     const showAlerts = settings?.email_alerts !== false
     setAlertsOn(showAlerts)
@@ -515,6 +520,7 @@ export default function TechnicianPage() {
                 workerName={workerName}
                 onOpen={openTicket}
                 emptyText={query.trim() || ticketNoQuery.trim() ? 'لا توجد بلاغات مطابقة.' : 'لا توجد بلاغات مُسندة إليك حالياً.'}
+                sanadReplied={sanadReplied}
               />
             </section>
           )}
@@ -532,7 +538,7 @@ export default function TechnicianPage() {
                   <button key={item} type="button" onClick={() => setFilter(item)} className={filter === item ? 'tab-active' : ''}>{item}</button>
                 ))}
               </div>
-              <TicketTable loading={loading} tickets={visibleTickets} names={names} numbers={staffNumbers} departments={departments} workerName={workerName} onOpen={openTicket} emptyText={query.trim() || ticketNoQuery.trim() || filter !== 'الكل' ? 'لا توجد بلاغات مطابقة.' : 'لا توجد بلاغات مسجلة حالياً.'} />
+              <TicketTable loading={loading} tickets={visibleTickets} names={names} numbers={staffNumbers} departments={departments} workerName={workerName} onOpen={openTicket} emptyText={query.trim() || ticketNoQuery.trim() || filter !== 'الكل' ? 'لا توجد بلاغات مطابقة.' : 'لا توجد بلاغات مسجلة حالياً.'} sanadReplied={sanadReplied} />
             </section>
           )}
         </div>
@@ -646,7 +652,7 @@ export default function TechnicianPage() {
   )
 }
 
-function TicketTable({ loading, tickets, names, numbers, departments, workerName, onOpen, emptyText }: { loading: boolean; tickets: TicketItem[]; names: Record<string, string>; numbers?: Record<string, string>; departments?: Record<string, string>; workerName: (ticket: TicketItem) => string; onOpen: (ticket: TicketItem) => void; emptyText?: string }) {
+function TicketTable({ loading, tickets, names, numbers, departments, workerName, onOpen, emptyText, sanadReplied }: { loading: boolean; tickets: TicketItem[]; names: Record<string, string>; numbers?: Record<string, string>; departments?: Record<string, string>; workerName: (ticket: TicketItem) => string; onOpen: (ticket: TicketItem) => void; emptyText?: string; sanadReplied?: Record<string, true> }) {
   if (loading) return <div className="skeleton-list" aria-label="جاري التحميل">{[0, 1, 2, 3].map((item) => <div key={item} className="skeleton-row" />)}</div>
   if (tickets.length === 0) return <div className="empty-state">{emptyText || 'لا توجد بلاغات مسجلة حالياً.'}</div>
   return (
@@ -679,6 +685,7 @@ function TicketTable({ loading, tickets, names, numbers, departments, workerName
                     {ticket.priority === 'عاجل' && <span style={{ color: '#ef4444' }}>عاجل</span>}
                     {ticket.is_private && <span style={{ color: '#64748b' }}>خاص</span>}
                     {late && <span style={{ color: '#ef4444' }}>متأخر</span>}
+                    {sanadReplied?.[ticket.id] && <span className="sanad-reply-mark">رد بسند</span>}
                   </span>
                 </td>
                 <td>
