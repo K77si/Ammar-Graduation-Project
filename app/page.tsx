@@ -182,6 +182,7 @@ export default function Page() {
   // الإعدادات
   const [settingTab, setSettingTab] = useState('عام')
   const [departmentList, setDepartmentList] = useState<string[]>([...DEPARTMENTS])
+  const departmentsSaving = useRef(false)
   const [newDepartmentName, setNewDepartmentName] = useState('')
   const [ticketEvents, setTicketEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; source?: string | null; created_at: string }>>([])
   const [ticketNotes, setTicketNotes] = useState<Array<{ id: string; author_name: string; body: string; created_at: string }>>([])
@@ -327,7 +328,7 @@ export default function Page() {
         strict_auth: settingsData.strict_auth ?? false,
         force_password_change: settingsData.force_password_change !== false
       })
-      if (Array.isArray(settingsData.departments) && settingsData.departments.length > 0) setDepartmentList(settingsData.departments)
+      if (!departmentsSaving.current && Array.isArray(settingsData.departments) && settingsData.departments.length > 0) setDepartmentList(settingsData.departments)
     }
     if (!silent) {
       setLoading(false)
@@ -401,6 +402,19 @@ export default function Page() {
     setSettingsMsg(error ? 'تعذّر حفظ الإعدادات: ' + error.message : 'تم حفظ الإعدادات.')
   }
 
+  const persistDepartments = async (next: string[], okMessage: string) => {
+    departmentsSaving.current = true
+    setDepartmentList(next)
+    const { error } = await supabase.from('system_settings').upsert({ id: 'main_settings', departments: next })
+    departmentsSaving.current = false
+    if (error) {
+      setSettingsMsg('تعذّر حفظ الأقسام: ' + error.message)
+      return
+    }
+    setDepartmentList(next)
+    setSettingsMsg(okMessage)
+  }
+
   const removeDepartment = (name: string) => {
     if (name === TECH_DEPARTMENT) return
     const members = users.filter((person) => departmentLabel(person.department) === name).length
@@ -408,8 +422,7 @@ export default function Page() {
       setSettingsMsg(`لا يمكن حذف قسم ${name} لارتباطه بحسابات (العدد: ${members}). انقل أصحابها إلى قسم آخر أولاً.`)
       return
     }
-    setDepartmentList(departmentList.filter((department) => department !== name))
-    setSettingsMsg(`حُذف قسم ${name} من القائمة. اضغط «حفظ التغييرات» لاعتماد الحذف.`)
+    void persistDepartments(departmentList.filter((department) => department !== name), `حُذف قسم ${name}، ولن يظهر في قائمة الأقسام.`)
   }
 
   const addDepartment = () => {
@@ -420,8 +433,7 @@ export default function Page() {
       setSettingsMsg(`قسم ${name} موجود مسبقاً.`)
       return
     }
-    setDepartmentList([...departmentList, name])
-    setSettingsMsg(`أُضيف قسم ${name}. اضغط «حفظ التغييرات» لاعتماد الإضافة.`)
+    void persistDepartments([...departmentList, name], `أُضيف قسم ${name}، ويظهر الآن في قائمة القسم عند إضافة مستخدم أو تعديله.`)
   }
 
   const totalTickets = tickets.length
@@ -949,7 +961,7 @@ export default function Page() {
                           <input aria-label="اسم القسم الجديد" value={newDepartmentName} onChange={(event) => setNewDepartmentName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addDepartment() } }} placeholder="قسم جديد" style={{ flex: 1, background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '8px', padding: '10px', color: 'var(--text)' }} />
                           <button type="button" onClick={addDepartment} style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '8px', padding: '0 12px', cursor: 'pointer' }}>إضافة</button>
                         </div>
-                        <small style={{ color: '#94a3b8' }}>لا يُحذف قسم فيه حسابات.</small>
+                        <small style={{ color: '#94a3b8' }}>يُحفظ القسم مباشرة ويظهر في قائمة القسم. لا يُحذف قسم فيه حسابات.</small>
                       </div>
                     </>
                   )}
