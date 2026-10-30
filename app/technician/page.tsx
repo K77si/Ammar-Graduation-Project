@@ -68,6 +68,9 @@ export default function TechnicianPage() {
   const [ready, setReady] = useState(false)
   const [activeTab, setActiveTab] = useState('نظرة عامة')
   const [userName, setUserName] = useState('فني الدعم')
+  const [staffRole, setStaffRole] = useState('')
+  const [statusPick, setStatusPick] = useState('')
+  const [statusFix, setStatusFix] = useState('')
   const greeting = useGreeting()
   const [userEmail, setUserEmail] = useState('')
   const [userId, setUserId] = useState('')
@@ -277,6 +280,7 @@ export default function TechnicianPage() {
       }
       userNameRef.current = profile.full_name || 'فني الدعم'
       setUserName(userNameRef.current)
+      setStaffRole(profile.role || '')
       setWorkerNumber(profile.employee_number || '')
       setAvailability(profile.availability || 'متاح')
       setReady(true)
@@ -315,6 +319,23 @@ export default function TechnicianPage() {
     setNotes(privateNotes.data || [])
     setTicketReplies(thread.messages)
     if (thread.error) setActionMsg(thread.error)
+  }
+
+  const runTicket = async (action: string, payload: Record<string, string> = {}) => {
+    if (!selectedTicket) return
+    setSavingStatus(true)
+    const result = await ticketAction(supabase, selectedTicket.id, action, payload)
+    setSavingStatus(false)
+    if (result.error) { setActionMsg(result.error); return }
+    const { data: fresh } = await supabase.from('tickets').select('*').eq('id', selectedTicket.id).maybeSingle()
+    if (fresh) {
+      const meta = readTicketMeta(fresh.title)
+      await openTicket({ ...(fresh as TicketItem), title: meta.problem, assigned_to: fresh.assigned_technician || null })
+    }
+    setStatusPick('')
+    setStatusFix('')
+    setActionMsg(action === 'claim' ? 'تم استلام البلاغ وإسناده إليك.' : action === 'note' ? 'تم حفظ الملاحظة.' : 'تم حفظ الإجراء.')
+    fetchQueue(true)
   }
 
   const handleSendReply = async (e: React.FormEvent) => {
@@ -636,12 +657,30 @@ export default function TechnicianPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
                   <span className="ticket-no" style={ticketNoStyle}>{formatTicketNo(selectedTicket.ticket_number)}</span>
                   <StatusBadge status={selectedTicket.status} />
-                  {asRating(selectedTicket.rating) !== null && <span style={{ background: 'var(--field)', padding: '4px 8px', borderRadius: '8px', fontSize: '12px' }}><b>التقييم:</b> {asRating(selectedTicket.rating)}/5</span>}
+                  {staffRole === 'manager' && asRating(selectedTicket.rating) !== null && <span style={{ background: 'var(--field)', padding: '4px 8px', borderRadius: '8px', fontSize: '12px' }}><b>التقييم:</b> {asRating(selectedTicket.rating)}/5</span>}
                 </div>
                 <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>{selectedTicket.title}</h3>
               </div>
               <button onClick={() => setSelectedTicket(null)} aria-label="إغلاق" title="إغلاق" style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={20} /></button>
             </div>
+            {selectedTicket.status === 'مفتوحة' && !selectedTicket.assigned_to && (
+              <button type="button" disabled={savingStatus} onClick={() => void runTicket('claim')} style={{ marginBottom: '12px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 14px', fontWeight: 700, cursor: 'pointer' }}>استلام البلاغ</button>
+            )}
+            {selectedTicket.assigned_to === userId && selectedTicket.status !== 'مغلقة' && selectedTicket.status !== 'ملغاة' && (
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>
+                <label htmlFor="tech-status" style={{ fontSize: '13px', fontWeight: 700 }}>تغيير الحالة</label>
+                <select id="tech-status" value={statusPick} onChange={(event) => setStatusPick(event.target.value)} style={{ background: 'var(--field)', color: 'inherit', border: '1px solid #c4b5fd', borderRadius: '8px', padding: '8px 10px' }}>
+                  <option value="">اختر الحالة</option>
+                  {(selectedTicket.status === 'منجزة' ? ['قيد المعالجة'] : ['قيد المعالجة', 'بانتظار الموظف', 'منجزة', 'مفتوحة']).filter((item) => item !== selectedTicket.status).map((item) => (
+                    <option key={item} value={item}>{item === 'مفتوحة' ? 'إرجاع لقائمة الانتظار' : item}</option>
+                  ))}
+                </select>
+                {statusPick === 'منجزة' && (
+                  <input aria-label="الحل" value={statusFix} onChange={(event) => setStatusFix(event.target.value)} placeholder="اكتب الحل قبل الإنجاز" style={{ flex: 1, minWidth: '180px', background: 'var(--field)', border: '1px solid var(--field-border)', borderRadius: '8px', padding: '8px 10px', color: 'inherit' }} />
+                )}
+                <button type="button" disabled={savingStatus || !statusPick || (statusPick === 'منجزة' && statusFix.trim().length < 3)} onClick={() => void runTicket('status', statusPick === 'منجزة' ? { status: statusPick, resolution: statusFix } : { status: statusPick })} style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 14px', fontWeight: 700, cursor: 'pointer' }}>حفظ الحالة</button>
+              </div>
+            )}
             <div className="ticket-meta">
               <div>
                 <b>مقدّم البلاغ</b>
@@ -655,19 +694,7 @@ export default function TechnicianPage() {
               </div>
             </div>
             {actionMsg && <p style={{ fontSize: '13px', margin: '0 0 10px', color: actionMsg.startsWith('تم') ? '#10b981' : '#ef4444' }}>{actionMsg}</p>}
-            <TicketTools ticket={selectedTicket} actor="technician" userId={userId} technicians={[]} events={events} notes={notes} busy={savingStatus} resolutionDraft={resolutionDraft} onRun={async (action, payload) => {
-              setSavingStatus(true)
-              const result = await ticketAction(supabase, selectedTicket.id, action, payload)
-              setSavingStatus(false)
-              if (result.error) { setActionMsg(result.error); return }
-              const { data: fresh } = await supabase.from('tickets').select('*').eq('id', selectedTicket.id).maybeSingle()
-              if (fresh) {
-                const meta = readTicketMeta(fresh.title)
-                await openTicket({ ...(fresh as TicketItem), title: meta.problem, assigned_to: fresh.assigned_technician || null })
-              }
-              setActionMsg(action === 'claim' ? 'تم استلام البلاغ وإسناده إليك.' : action === 'note' ? 'تم حفظ الملاحظة.' : 'تم حفظ الإجراء.')
-              fetchQueue(true)
-            }} />
+            <TicketTools ticket={selectedTicket} actor="technician" userId={userId} technicians={[]} events={events} notes={notes} busy={savingStatus} resolutionDraft={resolutionDraft} showRating={staffRole === 'manager'} onRun={runTicket} />
             {similarSolved.length > 0 && (
               <details className="fold" style={{ border: '1px solid rgba(16, 185, 129, 0.35)', borderRadius: '10px', padding: '10px 12px', margin: '0 0 12px' }}>
                 <summary>حلول بلاغات مشابهة ({similarSolved.length})</summary>

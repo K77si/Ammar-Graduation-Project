@@ -848,7 +848,7 @@ export default function Page() {
           {/* ----- (التحليلات) ----- */}
           {activeTab === 'التحليلات' && allowed('analytics') && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <PerformancePanel tickets={tickets} events={statusEvents} technicians={users.filter((person) => isTechnicianRole(person.role)).map((person) => ({ id: person.id, full_name: person.full_name }))} />
+              <PerformancePanel showRaterNotes tickets={tickets.map((ticket) => ({ ...ticket, rater_name: ticket.user_id ? users.find((person) => person.id === ticket.user_id)?.full_name : '' }))} events={statusEvents} technicians={users.filter((person) => isTechnicianRole(person.role)).map((person) => ({ id: person.id, full_name: person.full_name }))} />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px' }}>
                 <section className="panel">
                   <PanelHeader icon={<PieChart />} title="البلاغات حسب قسم صاحبها" action="" />

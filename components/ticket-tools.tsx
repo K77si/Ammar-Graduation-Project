@@ -19,6 +19,7 @@ type ToolsProps = {
   busy: boolean
   onRun: (action: string, payload?: Record<string, string>) => Promise<void>
   resolutionDraft?: string
+  showRating?: boolean
 }
 
 export function TicketTools(props: ToolsProps) {
@@ -26,7 +27,7 @@ export function TicketTools(props: ToolsProps) {
   return <Tools key={`${ticket.id}|${ticket.status}|${ticket.assigned_to || ''}|${ticket.resolution || ''}|${ticket.fault_type || ''}|${ticket.priority || ''}|${props.resolutionDraft || ''}`} {...props} />
 }
 
-function Tools({ ticket, actor, userId, technicians, events, notes, busy, onRun, resolutionDraft }: ToolsProps) {
+function Tools({ ticket, actor, userId, technicians, events, notes, busy, onRun, resolutionDraft, showRating }: ToolsProps) {
   const [reason, setReason] = useState('')
   const [resolution, setResolution] = useState(resolutionDraft || ticket.resolution || '')
   const [note, setNote] = useState('')
@@ -57,7 +58,7 @@ function Tools({ ticket, actor, userId, technicians, events, notes, busy, onRun,
       {ticket.priority === 'عاجل' && ticket.priority_reason && <p style={muted}>سبب الأهمية: {ticket.priority_reason}</p>}
       {ticket.resolution && <p style={{ margin: 0, fontSize: '13px' }}><b>{ticket.status === 'منجزة' || ticket.status === 'مغلقة' ? 'الحل:' : 'الحل السابق (قبل إعادة الفتح):'}</b> {ticket.resolution}</p>}
       {ticket.cancel_reason && <p style={{ margin: 0, fontSize: '13px' }}><b>سبب الإلغاء:</b> {ticket.cancel_reason}</p>}
-      {ticket.rating_reason && <p style={{ margin: 0, fontSize: '13px' }}><b>سبب التقييم:</b> {ticket.rating_reason}</p>}
+      {ticket.rating_reason && (actor === 'admin' || (actor === 'technician' && showRating)) && <p style={{ margin: 0, fontSize: '13px' }}><b>سبب التقييم:</b> {ticket.rating_reason}</p>}
 
       {owner && ticket.status === 'مفتوحة' && unassigned && (
         <Box title="إلغاء البلاغ">
@@ -183,7 +184,7 @@ export function TicketHistory({ events }: { events: EventRow[] }) {
     <div style={{ marginTop: '1rem' }}>
       <Fold title={`سجل البلاغ (${events.length})`}>
         <OriginFilter value={origin} onChange={setOrigin} />
-        {rows.length === 0 ? <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>لا توجد عمليات بهذا التصنيف.</p> : rows.map((event) => (
+        {rows.length === 0 ? <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>لا توجد عمليات بهذا التصنيف.</p> : [...rows].reverse().map((event) => (
           <p key={event.id} style={{ margin: '2px 0', fontSize: '12px', color: '#64748b', lineHeight: 1.8 }}>
             <b>{event.actor_name}</b>
             <OriginBadge source={originOf(event.source, event.note)} />

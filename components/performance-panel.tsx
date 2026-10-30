@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState, type CSSProperties } from 'react'
+import { Fragment, useMemo, useState, type CSSProperties } from 'react'
+import { formatTicketNo } from '@/lib/display'
 
 type Ticket = {
   id: string
@@ -9,6 +10,9 @@ type Ticket = {
   resolved_at?: string | null
   assigned_to?: string | null
   rating?: number | null
+  rating_reason?: string | null
+  rater_name?: string | null
+  ticket_number?: number | null
   priority?: string | null
   is_outage?: boolean | null
 }
@@ -39,7 +43,7 @@ function validRating(value?: number | null) {
   return typeof value === 'number' && value >= 1 && value <= 5 ? value : null
 }
 
-export function PerformancePanel({ tickets, events, technicians }: { tickets: Ticket[]; events: StatusEvent[]; technicians: Technician[] }) {
+export function PerformancePanel({ tickets, events, technicians, showRaterNotes = false }: { tickets: Ticket[]; events: StatusEvent[]; technicians: Technician[]; showRaterNotes?: boolean }) {
   const [range, setRange] = useState<'30' | '7' | 'all'>('30')
   const [now] = useState(() => Date.now())
 
@@ -81,7 +85,12 @@ export function PerformancePanel({ tickets, events, technicians }: { tickets: Ti
       const active = tickets.filter((ticket) => ticket.assigned_to === tech.id && ['قيد المعالجة', 'بانتظار الموظف'].includes(ticket.status)).length
       const durations = done.map((ticket) => { const doneAt = time(ticket.resolved_at); const created = time(ticket.created_at); return doneAt !== null && created !== null ? doneAt - created : null }).filter((value): value is number => value !== null)
       const techRatings = done.map((ticket) => validRating(ticket.rating)).filter((value): value is number => value !== null)
-      return { id: tech.id, name: tech.full_name, done: done.length, active, resolve: average(durations), rating: average(techRatings), rated: techRatings.length }
+      const reviews = done.flatMap((ticket) => {
+        const rating = validRating(ticket.rating)
+        if (rating === null) return []
+        return [{ id: ticket.id, rating, reason: (ticket.rating_reason || '').trim(), rater: ticket.rater_name || 'موظف', number: ticket.ticket_number }]
+      })
+      return { id: tech.id, name: tech.full_name, done: done.length, active, resolve: average(durations), rating: average(techRatings), rated: techRatings.length, reviews }
     }).sort((a, b) => b.done - a.done)
 
     return {
@@ -140,13 +149,29 @@ export function PerformancePanel({ tickets, events, technicians }: { tickets: Ti
             </thead>
             <tbody>
               {stats.perTech.map((tech) => (
-                <tr key={tech.id}>
-                  <td>{tech.name}</td>
-                  <td>{tech.done}</td>
-                  <td>{tech.active}</td>
-                  <td>{formatDuration(tech.resolve)}</td>
-                  <td>{tech.rating === null ? '—' : `${tech.rating.toFixed(1)} / 5 (${tech.rated})`}</td>
-                </tr>
+                <Fragment key={tech.id}>
+                  <tr>
+                    <td>{tech.name}</td>
+                    <td>{tech.done}</td>
+                    <td>{tech.active}</td>
+                    <td>{formatDuration(tech.resolve)}</td>
+                    <td>{tech.rating === null ? '—' : `${tech.rating.toFixed(1)} / 5 (${tech.rated})`}</td>
+                  </tr>
+                  {showRaterNotes && tech.reviews.length > 0 && (
+                    <tr>
+                      <td colSpan={5} style={{ fontSize: '12px', lineHeight: 1.8 }}>
+                        {tech.reviews.map((review) => (
+                          <p key={review.id} style={{ margin: '2px 0' }}>
+                            <b>{review.rater}</b>
+                            {review.number ? ` · ${formatTicketNo(review.number)}` : ''}
+                            {` · ${review.rating}/5`}
+                            {review.reason ? ` — ${review.reason}` : ''}
+                          </p>
+                        ))}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

@@ -432,20 +432,6 @@ export function AiAssistant({
       {mode === 'admin' && status.configured && !status.enabled && <p className="ai-gemini-meta">المساعد متوقف من الإعدادات.</p>}
       {error && <p className="ai-box-error">{error}</p>}
 
-      {!compact && thread.length > 0 && (
-        <div className="ai-thread">
-          {thread.map((turn, index) => (
-            <div key={`${turn.q}-${index}`} className="ai-turn">
-              <p className="ai-thread-q">{turn.q}</p>
-              <div className="ai-thread-a">
-                <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
-                <p>{turn.a}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
       {reply && (
         <div className="ai-box-reply">
           <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
@@ -506,6 +492,20 @@ export function AiAssistant({
           ))}
           {mode === 'employee' && helpReply && (reply.needs_ticket || reply.steps.length > 0) && reply.urgent && !solved && !filedNo && <p className="ai-box-note">يبدو أن العمل متوقف، وسيُرفع البلاغ بدرجة عاجل.</p>}
           {mode === 'technician' && helpReply && reply.needs_ticket && <p className="ai-box-note">قد يحتاج تصعيداً.</p>}
+        </div>
+      )}
+
+      {!compact && thread.length > 0 && (
+        <div className="ai-thread">
+          {[...thread].reverse().map((turn, index) => (
+            <div key={`${turn.q}-${index}`} className="ai-turn">
+              <p className="ai-thread-q">{turn.q}</p>
+              <div className="ai-thread-a">
+                <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
+                <p>{turn.a}</p>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

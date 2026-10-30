@@ -421,7 +421,7 @@ export default function EmployeePage() {
   }
 
   const handleRateTicket = async (ratingVal: number) => {
-    if (!selectedTicket) return
+    if (!selectedTicket || selectedTicket.rating) return
     setRatingMsg('')
     if (ratingReason.trim().length < 2) {
       setRatingMsg('اكتب سبب التقييم.')
@@ -520,14 +520,11 @@ export default function EmployeePage() {
   const openOutages = tickets.filter((ticket) => ticket.is_outage && isActive(ticket.status))
   const awaitingMe = tickets.filter((ticket) => ticket.status === 'بانتظار الموظف' && ticket.user_id === userId)
   const headSummary = useMemo(() => {
-    const rated = tickets.filter((ticket) => typeof ticket.rating === 'number' && ticket.rating > 0)
-    const average = rated.length ? (rated.reduce((sum, ticket) => sum + (ticket.rating || 0), 0) / rated.length).toFixed(1) : '—'
     return [
       { label: 'البلاغات المفتوحة', value: tickets.filter((t) => t.status === 'مفتوحة').length },
       { label: 'قيد المعالجة', value: tickets.filter((t) => t.status === 'قيد المعالجة').length },
       { label: 'بانتظار الموظف', value: tickets.filter((t) => t.status === 'بانتظار الموظف').length },
-      { label: 'العاجلة قيد المتابعة', value: tickets.filter((t) => t.priority === 'عاجل' && isActive(t.status)).length },
-      { label: 'متوسط التقييم', value: average }
+      { label: 'العاجلة قيد المتابعة', value: tickets.filter((t) => t.priority === 'عاجل' && isActive(t.status)).length }
     ]
   }, [tickets])
   const matchedFaqs = useMemo(() => (
@@ -764,16 +761,30 @@ export default function EmployeePage() {
             {/* التقييم */}
             {selectedTicket.user_id === userId && (selectedTicket.status === 'مغلقة' || selectedTicket.status === 'منجزة') && (
               <div style={{ background: 'var(--field)', border: `1px solid ${'var(--field-border)'}`, borderRadius: '12px', padding: '16px', textAlign: 'center' }}>
-                <h4 style={{ fontSize: '14px', marginBottom: '6px', color: '#10b981' }}>{selectedTicket.rating ? `تقييمك الحالي ${selectedTicket.rating}/5` : 'قيّم الخدمة'}</h4>
-                <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>اكتب سبب التقييم، ثم اختر عدد النجوم.</p>
-                <input aria-label="سبب التقييم" value={ratingReason} onChange={(event) => setRatingReason(event.target.value)} placeholder="سبب التقييم" style={{ width: '100%', marginBottom: '10px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px', color: 'var(--text)' }} />
-                <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button key={star} type="button" aria-label={`تقييم ${star} من 5`} onClick={() => handleRateTicket(star)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: (selectedTicket.rating || 0) >= star ? '#f59e0b' : '#94a3b8' }}>
-                      <Star size={24} fill={(selectedTicket.rating || 0) >= star ? '#f59e0b' : 'none'} />
-                    </button>
-                  ))}
-                </div>
+                <h4 style={{ fontSize: '14px', marginBottom: '6px', color: '#10b981' }}>{selectedTicket.rating ? `تقييمك ${selectedTicket.rating}/5` : 'قيّم الخدمة'}</h4>
+                {selectedTicket.rating ? (
+                  <>
+                    <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>تم حفظ التقييم، ولا يمكن تغييره.</p>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star key={star} size={24} color={(selectedTicket.rating || 0) >= star ? '#f59e0b' : '#94a3b8'} fill={(selectedTicket.rating || 0) >= star ? '#f59e0b' : 'none'} />
+                      ))}
+                    </div>
+                    {selectedTicket.rating_reason && <p style={{ fontSize: '13px', margin: '12px 0 0' }}>{selectedTicket.rating_reason}</p>}
+                  </>
+                ) : (
+                  <>
+                    <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>اكتب سبب التقييم، ثم اختر عدد النجوم. يُحفظ مرة واحدة.</p>
+                    <input aria-label="سبب التقييم" value={ratingReason} onChange={(event) => setRatingReason(event.target.value)} placeholder="سبب التقييم" style={{ width: '100%', marginBottom: '10px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px', color: 'var(--text)' }} />
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button key={star} type="button" aria-label={`تقييم ${star} من 5`} onClick={() => handleRateTicket(star)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                          <Star size={24} />
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
                 {ratingMsg && <p style={{ fontSize: '12px', margin: '10px 0 0', color: ratingMsg.startsWith('تم حفظ') ? '#10b981' : '#ef4444' }}>{ratingMsg}</p>}
               </div>
             )}
@@ -800,14 +811,6 @@ export default function EmployeePage() {
               </div>
             )}
             {outageMode && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 1rem', lineHeight: 1.7 }}>يصل للدعم التقني عاجلاً، ويراه موظفو {headDepartment}.</p>}
-            {!outageMode && matchedFaqs.length === 0 && faqs.length > 0 && (
-              <details className="fold ticket-solutions">
-                <summary>حلول قد تغنيك عن البلاغ ({faqs.length})</summary>
-                {faqs.map((item) => (
-                  <p key={item.id} style={{ margin: '8px 0 0', color: 'var(--text-muted)', lineHeight: 1.7 }}><b style={{ color: 'var(--text)' }}>{item.title}: </b>{item.body}</p>
-                ))}
-              </details>
-            )}
             <form onSubmit={handleCreateTicket} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label htmlFor="new-ticket-problem" style={{ display: 'block', fontSize: '13px', marginBottom: '6px' }}>{outageMode ? 'ما العطل الذي أصاب القسم؟' : 'وصف المشكلة'}</label>
@@ -867,6 +870,14 @@ export default function EmployeePage() {
                   </label>
                 </div>
               </details>
+              {!outageMode && matchedFaqs.length === 0 && faqs.length > 0 && (
+                <details className="fold ticket-solutions">
+                  <summary>حلول قد تغنيك عن البلاغ</summary>
+                  {faqs.map((item) => (
+                    <p key={item.id} style={{ margin: '8px 0 0', color: 'var(--text-muted)', lineHeight: 1.7 }}><b style={{ color: 'var(--text)' }}>{item.title}: </b>{item.body}</p>
+                  ))}
+                </details>
+              )}
               <div className="modal-foot">
                 <button type="submit" disabled={submitting} style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '8px', padding: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
                   {submitting ? 'جاري الإرسال...' : 'إرسال البلاغ'}
