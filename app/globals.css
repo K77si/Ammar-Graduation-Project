@@ -1055,9 +1055,25 @@ details.fold[open] > summary::after {
 .ai-gemini:not(.ai-gemini-compact) .ai-thread {
   flex: 1 1 auto;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-bottom: 8px;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 20px 24px;
+  align-content: start;
+  width: 100%;
+  margin-block: auto;
+  max-height: none;
+  overflow: visible;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts > .ai-gemini-group {
+  min-width: 0;
 }
 
 .ai-dock {
@@ -1067,6 +1083,15 @@ details.fold[open] > summary::after {
   flex: 0 0 auto;
   border-top: 1px solid rgba(139, 92, 246, 0.16);
   padding-top: 12px;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-dock .ai-shortcuts {
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-gemini-bar {
+  flex-shrink: 0;
 }
 
 .ai-shortcuts {
@@ -1151,6 +1176,8 @@ details.fold[open] > summary::after {
 
 .ai-gemini:not(.ai-gemini-compact) .ai-gemini-prompts button {
   width: auto;
+  max-width: 100%;
+  white-space: normal;
   border-radius: 999px;
 }
 
@@ -1163,11 +1190,6 @@ details.fold[open] > summary::after {
   .ai-gemini:not(.ai-gemini-compact) .ai-thread {
     min-height: 0;
     max-height: none;
-  }
-
-  .ai-shortcuts {
-    max-height: 168px;
-    overflow-y: auto;
   }
 }
 

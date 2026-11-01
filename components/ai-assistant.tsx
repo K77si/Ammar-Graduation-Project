@@ -150,6 +150,7 @@ export function AiAssistant({
   const [thread, setThread] = useState<Turn[]>([])
   const [lastQuestion, setLastQuestion] = useState('')
   const restored = useRef(false)
+  const askedRef = useRef(false)
   const transcriptRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -159,7 +160,10 @@ export function AiAssistant({
     }
     let alive = true
     supabase.auth.getSession().then(({ data }) => {
-      if (!alive) return
+      if (!alive || askedRef.current) {
+        restored.current = true
+        return
+      }
       const userId = data.session?.user.id
       if (userId) {
         try {
@@ -198,6 +202,7 @@ export function AiAssistant({
 
   useLayoutEffect(() => {
     if (!transcriptOpen) return
+    if (thread.length === 0 && !reply && !loading) return
     const node = transcriptRef.current
     if (!node) return
     node.scrollTop = node.scrollHeight
@@ -253,6 +258,7 @@ export function AiAssistant({
     const text = (payload.question ?? question).trim()
     if (loading) return
     if (!payload.choice && !payload.confirm && text.length < 2 && !image && !draft) return
+    askedRef.current = true
     setLoading(true)
     setError('')
     setSolved(false)
@@ -392,9 +398,9 @@ export function AiAssistant({
   const replyDetails = reply ? (
     <>
       <p>{reply.answer}</p>
-      {reply.steps.length > 0 && (
+      {(reply.steps || []).length > 0 && (
         <ol>
-          {reply.steps.map((item, index) => <li key={index}>{item}</li>)}
+          {(reply.steps || []).map((item, index) => <li key={index}>{item}</li>)}
         </ol>
       )}
       {(choices.length || reply.confirm || reply.followups?.length) ? (
@@ -431,7 +437,7 @@ export function AiAssistant({
           ))}
         </div>
       ) : null}
-      {mode === 'employee' && helpReply && (reply.needs_ticket || reply.steps.length > 0) && (filedNo ? (
+      {mode === 'employee' && helpReply && (reply.needs_ticket || (reply.steps || []).length > 0) && (filedNo ? (
         <p className="ai-box-done">تم رفع البلاغ {filedNo} وإحالته إلى الدعم التقني.</p>
       ) : solved ? (
         <p className="ai-box-done">ممتاز، يسعدنا أن المشكلة حُلّت.</p>
@@ -446,7 +452,7 @@ export function AiAssistant({
           )}
         </div>
       ))}
-      {mode === 'employee' && helpReply && (reply.needs_ticket || reply.steps.length > 0) && reply.urgent && !solved && !filedNo && <p className="ai-box-note">يبدو أن العمل متوقف، وسيُرفع البلاغ بدرجة عاجل.</p>}
+      {mode === 'employee' && helpReply && (reply.needs_ticket || (reply.steps || []).length > 0) && reply.urgent && !solved && !filedNo && <p className="ai-box-note">يبدو أن العمل متوقف، وسيُرفع البلاغ بدرجة عاجل.</p>}
       {mode === 'technician' && helpReply && reply.needs_ticket && <p className="ai-box-note">قد يحتاج تصعيداً.</p>}
     </>
   ) : null
@@ -497,9 +503,11 @@ export function AiAssistant({
     </>
   )
 
+  const replyVisible = Boolean(reply && (reply.answer?.trim() || lastQuestion))
+  const welcome = thread.length === 0 && !reply && !loading
   const shortcuts = !guiding && shownGroups.map((group) => (
     <div key={group} className="ai-gemini-group">
-      {reply && group === shownGroups[0] && <p className="ai-gemini-again">أو اختر خطوة</p>}
+      {replyVisible && group === shownGroups[0] && <p className="ai-gemini-again">أو اختر خطوة</p>}
       <p className="ai-gemini-group-label">{compact ? 'أو اختر إجراءً' : group}</p>
       {!compact && GROUP_HINT[group] && <p className="ai-gemini-hint">{GROUP_HINT[group]}</p>}
       <div className="ai-gemini-prompts">
@@ -559,9 +567,10 @@ export function AiAssistant({
           </div>
         )}
         {loading && <p className="ai-pending">سند يكتب…</p>}
+        {welcome && Array.isArray(shortcuts) && shortcuts.length > 0 ? <div className="ai-shortcuts">{shortcuts}</div> : null}
       </div>
       <div className="ai-dock">
-        {shortcuts ? <div className="ai-shortcuts">{shortcuts}</div> : null}
+        {!welcome && Array.isArray(shortcuts) && shortcuts.length > 0 ? <div className="ai-shortcuts">{shortcuts}</div> : null}
         {notices}
         {composer}
       </div>
