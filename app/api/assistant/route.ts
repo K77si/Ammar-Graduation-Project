@@ -7,6 +7,7 @@ import { rankSimilar } from '@/lib/similar'
 import { readTicketMeta } from '@/lib/ticket-thread'
 import { interpret } from '@/lib/assistant-desk'
 import { anthropicTools, asksEmployeeCount, assistantGatewayTools, runAssistantTool } from '@/lib/assistant-tools'
+import { answerFromTools, visibleAnswer } from '@/lib/assistant-text'
 
 const GATEWAY_MODEL = 'anthropic/claude-haiku-5-5'
 const DIRECT_MODEL = 'claude-haiku-5-5'
@@ -113,7 +114,7 @@ function readHistory(value: unknown) {
     if (!item || typeof item !== 'object') return []
     const turn = item as { q?: unknown; a?: unknown }
     const q = typeof turn.q === 'string' ? turn.q.trim().slice(0, 1500) : ''
-    const a = typeof turn.a === 'string' ? turn.a.trim().slice(0, 1500) : ''
+    const a = visibleAnswer(typeof turn.a === 'string' ? turn.a : '').slice(0, 1500)
     if (q.length < 2 || a.length < 2) return []
     return [{ q, a }]
   })
@@ -206,11 +207,11 @@ export async function POST(request: Request) {
       ]
   const system = [
     'أنت سند، مساعد ذكي داخل منصة الدعم. تجيب على أي سؤال، وتتابع آخر الرسائل، وتنفّذ إجراءات البلاغات عندما يطلبها صاحب الجلسة.',
-    'اكتب بلغة السؤال. إذا كتب بالعربية فأجب بالعربية الواضحة.',
+    'أجب بالعربية الواضحة دائماً. لا تكتب إنجليزية، ولا تذكر أسماء الأدوات، ولا تلصق JSON، ولا تشرح طريقة بحثك.',
     ...audienceRules,
-    'لا تذكر تفاصيل بلاغ خاص إلا إذا كان السياق لفني أو مدير. لا تخترع أرقاماً.',
+    'لا تذكر تفاصيل بلاغ خاص إلا إذا كان السياق لفني أو مدير. لا تخترع رقم بلاغ ولا حالته. إذا لم تُرجع الأداة البلاغ فقل بجملة عربية إنه غير ظاهر، دون اعتذار طويل ودون ذكر ما قلته سابقاً.',
     'هوية المتصل تُؤخذ من جلسة الدخول. لا تطلب رقمه أو اسمه أو بريده لتحديد من هو، ولا تعامل اسماً في السؤال على أنه هوية الجلسة.',
-    'لعدد الحسابات أو البحث أو إنشاء حساب أو تعديله أو ملخص البلاغات أو فتح بلاغ أو تغيير حالته، استدعِ الأداة ثم انقل JSON الناتج حرفياً.',
+    'لعدد الحسابات أو البحث أو إنشاء حساب أو تعديله أو ملخص البلاغات أو فتح بلاغ أو تغيير حالته، استدعِ الأداة ثم صغ النتيجة جملة عربية داخل answer. لا تنقل JSON.',
     'إذا رفضت الأداة الإجراء فانقل نص الخطأ كما هو. لا تخترع عدداً ولا تدّعي أن حساباً أو بلاغاً تغيّر.',
     'عدد الموظفين والبحث في الدليل وإنشاء الحسابات وتعديلها لمدير النظام الذي يملك صلاحية المستخدمين فقط.',
     'في سؤال العدد اجعل steps فارغة وneeds_ticket خطأ حتى لو رُفض الطلب.',
@@ -241,6 +242,13 @@ export async function POST(request: Request) {
   const countQuestion = asksEmployeeCount(question)
   const gatewayTools = assistantGatewayTools(actor, request)
 
+  const toolRecords = (result: { steps?: Array<{ toolResults?: Array<{ output?: unknown; result?: unknown }> }>; toolResults?: Array<{ output?: unknown; result?: unknown }> }) => {
+    const fromSteps = (result.steps || []).flatMap((step) => step.toolResults || [])
+    return [...fromSteps, ...(result.toolResults || [])].flatMap((item) => {
+      const value = item.output ?? item.result
+      return value && typeof value === 'object' ? [value as Record<string, unknown>] : []
+    })
+  }
   const gatewayText = async () => {
     const model = paths.gatewayKey ? createGateway({ apiKey: paths.gatewayKey })(GATEWAY_MODEL) : GATEWAY_MODEL
     const run = (disableThinking: boolean) => generateText({
@@ -258,10 +266,12 @@ export async function POST(request: Request) {
       messages: [...priorMessages, { role: 'user' as const, content: userContent }]
     })
     try {
-      return (await run(true)).text.trim()
+      const result = await run(true)
+      return { text: result.text.trim(), tools: toolRecords(result) }
     } catch (error) {
       if (!thinkingRejected(error)) throw error
-      return (await run(false)).text.trim()
+      const result = await run(false)
+      return { text: result.text.trim(), tools: toolRecords(result) }
     }
   }
 
@@ -282,6 +292,7 @@ export async function POST(request: Request) {
         { role: 'user', content }
       ]
       let text = ''
+      const tools: Array<Record<string, unknown>> = []
       for (let step = 0; step < 3; step += 1) {
         const message = await client.messages.create({
           model: paths.directModel,
@@ -294,7 +305,7 @@ export async function POST(request: Request) {
         })
         text = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('').trim()
         const calls = message.content.filter((part) => part.type === 'tool_use')
-        if (!calls.length) return text
+        if (!calls.length) return { text, tools }
         const assistantContent: Anthropic.ContentBlockParam[] = []
         for (const part of message.content) {
           if (part.type === 'text') assistantContent.push({ type: 'text', text: part.text })
@@ -305,6 +316,7 @@ export async function POST(request: Request) {
         const results: Anthropic.ToolResultBlockParam[] = []
         for (const part of calls) {
           const output = await runAssistantTool(part.name, part.input, actor, request)
+          tools.push(output)
           results.push({
             type: 'tool_result',
             tool_use_id: part.id,
@@ -315,7 +327,7 @@ export async function POST(request: Request) {
         messages.push({ role: 'assistant', content: assistantContent })
         messages.push({ role: 'user', content: results })
       }
-      return text
+      return { text, tools }
     }
     try {
       return await run(true)
@@ -327,34 +339,42 @@ export async function POST(request: Request) {
 
   try {
     let text = ''
+    let tools: Array<Record<string, unknown>> = []
     let source = ''
     if (paths.canGateway) {
       try {
-        text = await gatewayText()
+        const result = await gatewayText()
+        text = result.text
+        tools = result.tools
         source = 'gateway'
       } catch (error) {
         if (!needsCard(error) || !paths.canDirect) {
           if (needsCard(error)) return Response.json({ error: `${CARD_REASON}.` }, { status: 502 })
           throw error
         }
-        text = await directText()
+        const result = await directText()
+        text = result.text
+        tools = result.tools
         source = 'anthropic-fallback'
       }
     } else {
-      text = await directText()
+      const result = await directText()
+      text = result.text
+      tools = result.tools
       source = 'anthropic'
     }
     console.info(`assistant help source=${source}`)
     const parsed = readJson(text)
     const preface = outcome.preface ? `${outcome.preface}\n` : ''
     const headers = { 'x-sanad-help-source': source }
-    if (!parsed) {
-      return Response.json({ answer: `${preface}${text || 'لم أستطع الإجابة. أعد صياغة السؤال.'}`, steps: [], fault_type: 'أخرى', urgent: false, needs_ticket: false, kind: 'help', choices: [], confirm: null, draft: null, followups: [] }, { headers })
+    const spoken = visibleAnswer(text) || answerFromTools(tools) || 'لم أستطع الإجابة. أعد صياغة السؤال.'
+    if (!parsed || typeof parsed.answer !== 'string') {
+      return Response.json({ answer: `${preface}${spoken}`.trim(), steps: [], fault_type: 'أخرى', urgent: false, needs_ticket: false, kind: 'help', choices: [], confirm: null, draft: null, followups: [] }, { headers })
     }
     const fault = String(parsed.fault_type || '')
-    const answer = `${preface}${String(parsed.answer || '')}`.trim()
+    const answer = `${preface}${visibleAnswer(String(parsed.answer || '')) || spoken}`.trim()
     return Response.json({
-      answer: (answer || text || 'لم أستطع الإجابة. أعد صياغة السؤال.').slice(0, 4000),
+      answer: (answer || 'لم أستطع الإجابة. أعد صياغة السؤال.').slice(0, 4000),
       steps: countQuestion ? [] : (Array.isArray(parsed.steps) ? parsed.steps.map((step) => String(step).slice(0, 300)).slice(0, 5) : []),
       fault_type: (FAULT_TYPES as readonly string[]).includes(fault) ? fault : 'أخرى',
       urgent: parsed.urgent === true,

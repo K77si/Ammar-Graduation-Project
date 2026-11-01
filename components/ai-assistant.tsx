@@ -6,6 +6,7 @@ import { ArrowUp, Loader2, Plus } from 'lucide-react'
 import { FAULT_TYPES, ticketAction } from '@/lib/workflow'
 import { formatTicketNo } from '@/lib/display'
 import { SanadMark } from '@/components/sanad-mark'
+import { visibleAnswer } from '@/lib/assistant-text'
 
 type Choice = { id: string; label: string }
 type Confirm = { action: string; label: string; payload: Record<string, string> }
@@ -397,7 +398,7 @@ export function AiAssistant({
 
   const replyDetails = reply ? (
     <>
-      <p>{reply.answer}</p>
+      <p>{visibleAnswer(reply.answer) || 'تعذّر عرض هذا الرد. أعد السؤال.'}</p>
       {(reply.steps || []).length > 0 && (
         <ol>
           {(reply.steps || []).map((item, index) => <li key={index}>{item}</li>)}
@@ -552,7 +553,7 @@ export function AiAssistant({
             <p className="ai-thread-q">{turn.q}</p>
             <div className="ai-thread-a">
               <span className="ai-turn-who"><SanadMark size={14} /> سند</span>
-              <p>{turn.a}</p>
+              <p>{visibleAnswer(turn.a) || 'تعذّر عرض هذا الرد. أعد السؤال.'}</p>
             </div>
           </div>
         ))}
