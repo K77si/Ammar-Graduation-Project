@@ -396,9 +396,9 @@ export default function TechnicianPage() {
   const statusStats = useMemo(() => {
     return STATUSES.map((status) => ({
       label: status,
-      value: totalTickets > 0 ? Math.round((tickets.filter((ticket) => ticket.status === status).length / totalTickets) * 100) : 0
+      count: tickets.filter((ticket) => ticket.status === status).length
     }))
-  }, [tickets, totalTickets])
+  }, [tickets])
 
   const initials = userName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('') || 'ف'
 
@@ -581,10 +581,10 @@ export default function TechnicianPage() {
           {activeTab === 'التحليلات' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <section className="panel">
-                <PanelHeader icon={<BarChart3 />} title="نسبة كل حالة من البلاغات" action="" />
+                <PanelHeader icon={<BarChart3 />} title="عدد البلاغات حسب الحالة" action="" />
                 <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {totalTickets > 0 ? statusStats.map((stat, index) => (
-                    <ProgressBar key={stat.label} label={stat.label} value={stat.value} color={index % 2 === 0 ? '#8b5cf6' : '#10b981'} />
+                    <ProgressBar key={stat.label} label={stat.label} count={stat.count} total={totalTickets} color={index % 2 === 0 ? '#8b5cf6' : '#10b981'} />
                   )) : (
                     <div style={{ textAlign: 'center', opacity: 0.6, padding: '20px' }}>لا توجد بلاغات بعد.</div>
                   )}
@@ -818,12 +818,13 @@ function Stat({ icon, label, value, sub, onClick }: { icon: React.ReactNode; lab
   return <button type="button" className="stat-card" onClick={onClick}><div className="stat-icon">{icon}</div><span className="stat-delta up">{sub}</span><small>{label}</small><strong>{value}</strong><span className="stat-caption">اضغط لفتح القائمة</span></button>
 }
 
-function ProgressBar({ label, value, color }: { label: string; value: number; color: string }) {
+function ProgressBar({ label, count, total, color }: { label: string; count: number; total: number; color: string }) {
+  const width = total > 0 ? Math.round((count / total) * 100) : 0
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}><span>{label}</span><b>{value}%</b></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}><span>{label}</span><b>العدد: {count}</b></div>
       <div style={{ width: '100%', height: '8px', background: 'rgba(139, 92, 246, 0.1)', borderRadius: '4px', overflow: 'hidden' }}>
-        <div style={{ width: `${value}%`, height: '100%', background: color, borderRadius: '4px' }} />
+        <div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: '4px' }} />
       </div>
     </div>
   )
