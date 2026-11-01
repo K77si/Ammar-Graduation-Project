@@ -11,6 +11,7 @@ import {
   departmentLabel,
   formatTicketNo,
   isTechnicianRole,
+  normalizeDigits,
   passwordError,
   roleLabel,
   statusLabel,
@@ -294,6 +295,44 @@ async function loadDesk(actor: Actor): Promise<Desk> {
 
 function ticketByNumber(desk: Desk, value: string) {
   return desk.rows.find((row) => String(row.ticket_number) === value)
+}
+
+function mentionedTicket(question: string) {
+  const match = normalizeDigits(question).match(/#?\s*(\d{3,6})\b/)
+  if (!match) return ''
+  return match[1].replace(/^0+/, '') || match[1]
+}
+
+function asksTicketDetail(question: string) {
+  const text = normalizeDigits(question)
+  if (/استلم|أنجز|انجز|أسند|اسند|أرجع|ارجع|غيّر|غير|ملاحظة|اطلب معلومة|إعادة فتح|اعد فتح|تقييم/.test(text)) return false
+  return /تفاصيل|حال[ةه]|معلوم|بيانات|وش صار|ايش صار|وش فيه|ايش فيه|وريني|اعطني|أعطني|عن البلاغ|ملخص البلاغ/.test(text)
+    || /#\s*\d{3,}/.test(text)
+    || /بلاغ\s*#?\s*\d{3,}/.test(text)
+}
+
+async function fetchTicket(desk: Desk, actor: Actor, number: string): Promise<Row | null | 'hidden'> {
+  const cached = ticketByNumber(desk, number)
+  const row = cached || await (async () => {
+    const { data } = await serviceClient().from('tickets').select(COLUMNS).eq('ticket_number', Number(number)).maybeSingle()
+    return (data as Row | null) || null
+  })()
+  if (!row) return null
+  if (isTechnicianRole(desk.role) || desk.role === 'admin') return row
+  if (row.is_private && desk.role === 'department_head') return 'hidden'
+  if (desk.role === 'department_head') {
+    const owner = desk.people.find((person) => person.id === row.user_id)
+    const sameDept = departmentLabel(owner?.department) === departmentLabel(desk.department) || departmentLabel(row.affected_department) === departmentLabel(desk.department)
+    return sameDept ? row : 'hidden'
+  }
+  return row.user_id === actor.id ? row : 'hidden'
+}
+
+function detailOf(row: Row, actorId: string, names: Map<string, string>) {
+  const lines = [lineOf(row, actorId, names)]
+  if (row.fault_type) lines.push(`نوع العطل: ${row.fault_type}`)
+  if (row.resolution) lines.push(`الحل المسجل: ${row.resolution.slice(0, 240)}`)
+  return lines.join('\n')
 }
 
 function statusHelp(question: string) {
@@ -1345,6 +1384,13 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
         ? technicianDesk(desk, actor, question, input.ticketId || '')
         : employeeDesk(desk, actor, question)
   if (specific) return { type: 'reply', reply: specific }
+  const number = mentionedTicket(question)
+  if (number && asksTicketDetail(question)) {
+    const found = await fetchTicket(desk, actor, number)
+    if (found === 'hidden') return { type: 'reply', reply: say('هذا البلاغ غير ظاهر لحسابك.') }
+    if (!found) return { type: 'reply', reply: say(`ما لقيت بلاغاً رقمه ${number}.`) }
+    return { type: 'reply', reply: say(detailOf(found, actor.id, desk.names), { kind: 'stats' }) }
+  }
   if (toolAction(question)) {
     const facts = answerTickets(desk, actor, role === 'department_head' || role === 'user' ? 'بلاغاتي المفتوحة' : 'وش عندنا تذاكر اليوم والمفتوحة').answer
     return { type: 'help', preface: helpPreface(desk, actor, question), facts }
