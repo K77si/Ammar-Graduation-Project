@@ -507,7 +507,6 @@ export function AiAssistant({
   const welcome = thread.length === 0 && !reply && !loading
   const shortcuts = !guiding && shownGroups.map((group) => (
     <div key={group} className="ai-gemini-group">
-      {replyVisible && group === shownGroups[0] && <p className="ai-gemini-again">أو اختر خطوة</p>}
       <p className="ai-gemini-group-label">{compact ? 'أو اختر إجراءً' : group}</p>
       {!compact && GROUP_HINT[group] && <p className="ai-gemini-hint">{GROUP_HINT[group]}</p>}
       <div className="ai-gemini-prompts">
@@ -570,7 +569,12 @@ export function AiAssistant({
         {welcome && Array.isArray(shortcuts) && shortcuts.length > 0 ? <div className="ai-shortcuts">{shortcuts}</div> : null}
       </div>
       <div className="ai-dock">
-        {!welcome && Array.isArray(shortcuts) && shortcuts.length > 0 ? <div className="ai-shortcuts">{shortcuts}</div> : null}
+        {!welcome && Array.isArray(shortcuts) && shortcuts.length > 0 ? (
+          <>
+            {replyVisible ? <p className="ai-gemini-again">أو اختر خطوة</p> : null}
+            <div className="ai-shortcuts">{shortcuts}</div>
+          </>
+        ) : null}
         {notices}
         {composer}
       </div>

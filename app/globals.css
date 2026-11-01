@@ -1061,18 +1061,28 @@ details.fold[open] > summary::after {
   padding-bottom: 8px;
 }
 
-.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts {
+.ai-gemini:not(.ai-gemini-compact) .ai-gemini-intro {
+  flex-shrink: 0;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts,
+.ai-gemini:not(.ai-gemini-compact) .ai-dock .ai-shortcuts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
-  gap: 20px 24px;
+  gap: 16px 20px;
   align-content: start;
+  align-items: start;
   width: 100%;
-  margin-block: auto;
   max-height: none;
   overflow: visible;
 }
 
-.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts > .ai-gemini-group {
+.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts {
+  margin-block: auto;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts > .ai-gemini-group,
+.ai-gemini:not(.ai-gemini-compact) .ai-dock .ai-shortcuts > .ai-gemini-group {
   min-width: 0;
 }
 
@@ -1080,13 +1090,17 @@ details.fold[open] > summary::after {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-height: 0;
   border-top: 1px solid rgba(139, 92, 246, 0.16);
   padding-top: 12px;
 }
 
 .ai-gemini:not(.ai-gemini-compact) .ai-dock .ai-shortcuts {
-  max-height: 140px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 190px;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
