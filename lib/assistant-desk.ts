@@ -724,11 +724,12 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
     return say(lines.length ? `أعطال هذا الأسبوع:\n${lines.join('\n')}` : 'ما فيه بلاغات هذا الأسبوع.', { kind: 'stats' })
   }
   if (/حمل الفني|اداء الفني|أداء الفني|مين فاضي|من فاضي/.test(question)) {
-    const techs = desk.people.filter((person) => isTechnicianRole(person.role))
-    const lines = techs.map((person) => {
-      const open = desk.rows.filter((row) => row.assigned_technician === person.id && isActive(row.status)).length
-      return `${person.full_name}: ${open} مفتوح · ${person.availability || 'متاح'}`
-    })
+    const techs = desk.people.filter((person) => isTechnicianRole(person.role)).map((person) => ({
+      name: person.full_name || 'فني',
+      open: desk.rows.filter((row) => row.assigned_technician === person.id && isActive(row.status)).length,
+      availability: person.availability || 'متاح'
+    })).sort((a, b) => a.open - b.open || a.name.localeCompare(b.name, 'ar'))
+    const lines = techs.map((person) => `${person.name} — ${person.open} بلاغ مفتوح — ${person.availability}`)
     return say(lines.length ? lines.join('\n') : 'ما فيه فنيون.', { kind: 'stats' })
   }
   if (/حسابات ناقصة|بدون قسم|بدون رقم|لم تُعتمد|لم تعتمد|بانتظار الاعتماد/.test(question)) {

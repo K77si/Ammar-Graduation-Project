@@ -386,7 +386,11 @@ export function AiAssistant({
 
   const persona: Persona = role || (mode === 'admin' ? 'admin' : mode === 'technician' ? 'technician' : 'user')
   const prompts = MENUS[persona].filter((chip) => persona !== 'admin' || !chip.need || permissions == null || permissions.includes(chip.need))
-  const groups = [...new Set(prompts.map((chip) => chip.group))]
+  const visiblePrompts = prompts.filter((chip) => {
+    if (persona !== 'technician') return true
+    return compact ? chip.group === 'على البلاغ' : chip.group === 'الطابور'
+  })
+  const groups = [...new Set(visiblePrompts.map((chip) => chip.group))]
   const intro = INTRO[persona]
   const step = draft?.step || ''
   const placeholder = step === 'body' && draft?.intent === 'reply'
@@ -399,9 +403,10 @@ export function AiAssistant({
   const listed = choices.filter((choice) => choice.id !== 'cancel')
   const cancelChoice = choices.find((choice) => choice.id === 'cancel')
   const usePicker = listed.length > 8
-  const picked = listed.filter((choice) => choice.label.includes(pickQuery.trim()))
+  const query = pickQuery.trim()
+  const queryReady = query.length >= 2
+  const picked = queryReady ? listed.filter((choice) => choice.label.includes(query)) : []
   const guiding = Boolean(draft || choices.length || reply?.confirm)
-  const shownGroups = compact ? groups.filter((group) => group === 'على البلاغ') : groups
   const canSend = STEP_HINT[step] ? question.trim().length >= 1 : question.trim().length >= 2 || Boolean(image)
 
   const replyDetails = reply ? (
@@ -426,7 +431,7 @@ export function AiAssistant({
                 aria-label="بحث في الحسابات"
               />
               <div className="ai-picker-list">
-                {picked.length === 0 ? <p>لا يوجد حساب بهذا البحث.</p> : picked.map((choice) => (
+                {!queryReady ? <p>اكتب حرفين على الأقل.</p> : picked.length === 0 ? <p>لا توجد نتيجة بهذا البحث.</p> : picked.map((choice) => (
                   <button key={choice.id} type="button" disabled={loading} onClick={() => void send({ question: choice.label, choice: choice.id })}>{choice.label}</button>
                 ))}
               </div>
@@ -513,12 +518,12 @@ export function AiAssistant({
   )
 
   const welcome = thread.length === 0 && !reply && !loading
-  const shortcuts = !guiding && shownGroups.map((group) => (
+  const shortcuts = !guiding && groups.map((group) => (
     <div key={group} className="ai-gemini-group">
       <p className="ai-gemini-group-label">{compact ? 'أو اختر إجراءً' : group}</p>
       {!compact && GROUP_HINT[group] && <p className="ai-gemini-hint">{GROUP_HINT[group]}</p>}
       <div className="ai-gemini-prompts">
-        {prompts.filter((prompt) => prompt.group === group).map((prompt) => (
+        {visiblePrompts.filter((prompt) => prompt.group === group).map((prompt) => (
           <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>
         ))}
       </div>
@@ -577,9 +582,9 @@ export function AiAssistant({
         {welcome && Array.isArray(shortcuts) && shortcuts.length > 0 ? <div className="ai-shortcuts">{shortcuts}</div> : null}
       </div>
       <div className="ai-dock">
-        {!welcome && !guiding && prompts.length > 0 ? (
+        {!welcome && !guiding && visiblePrompts.length > 0 ? (
           <div className="ai-gemini-prompts ai-dock-chips">
-            {prompts.map((prompt) => (
+            {visiblePrompts.map((prompt) => (
               <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>
             ))}
           </div>
