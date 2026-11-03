@@ -504,7 +504,6 @@ export function AiAssistant({
     </>
   )
 
-  const replyVisible = Boolean(reply && (reply.answer?.trim() || lastQuestion))
   const welcome = thread.length === 0 && !reply && !loading
   const shortcuts = !guiding && shownGroups.map((group) => (
     <div key={group} className="ai-gemini-group">
@@ -570,11 +569,12 @@ export function AiAssistant({
         {welcome && Array.isArray(shortcuts) && shortcuts.length > 0 ? <div className="ai-shortcuts">{shortcuts}</div> : null}
       </div>
       <div className="ai-dock">
-        {!welcome && Array.isArray(shortcuts) && shortcuts.length > 0 ? (
-          <>
-            {replyVisible ? <p className="ai-gemini-again">أو اختر خطوة</p> : null}
-            <div className="ai-shortcuts">{shortcuts}</div>
-          </>
+        {!welcome && !guiding && prompts.length > 0 ? (
+          <div className="ai-gemini-prompts ai-dock-chips">
+            {prompts.map((prompt) => (
+              <button key={prompt.question} type="button" disabled={!ready || loading} onClick={() => void send({ question: prompt.question })}>{prompt.label}</button>
+            ))}
+          </div>
         ) : null}
         {notices}
         {composer}

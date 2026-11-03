@@ -73,6 +73,10 @@ export function visibleAnswer(raw: string) {
   return hasArabic(text) ? text.slice(0, 4000) : ''
 }
 
+function textOf(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 export function answerFromTools(outputs: Array<Record<string, unknown>>) {
   const lines: string[] = []
   for (const data of outputs) {
@@ -80,9 +84,41 @@ export function answerFromTools(outputs: Array<Record<string, unknown>>) {
       lines.push(data.error)
       continue
     }
+    if (typeof data.count === 'number') {
+      const department = textOf(data.department)
+      const scope = department && department !== 'all' ? ` في ${department}` : ''
+      lines.push(`عدد الحسابات${scope}: ${data.count}.`)
+      continue
+    }
+    if (Array.isArray(data.employees)) {
+      const names = data.employees.flatMap((row) => {
+        if (!row || typeof row !== 'object') return []
+        const name = textOf((row as Record<string, unknown>).full_name)
+        return name ? [name] : []
+      })
+      lines.push(names.length ? `لقيت ${names.length}: ${names.join('، ')}.` : 'ما لقيت حساباً مطابقاً.')
+      continue
+    }
     if (typeof data.open === 'number' && typeof data.pending === 'number' && typeof data.closed === 'number') {
       const title = data.scope === 'department' ? 'بلاغات القسم' : data.scope === 'own' ? 'بلاغاتك' : 'البلاغات الظاهرة لك'
       lines.push(`ملخص ${title}: المفتوحة وقيد المعالجة ${data.open}، بانتظار الموظف ${data.pending}، المنجزة والمغلقة ${data.closed}.`)
+      continue
+    }
+    if (typeof data.ticket_number === 'number' || (typeof data.ticket_number === 'string' && data.ticket_number)) {
+      lines.push(`تم فتح البلاغ رقم ${data.ticket_number}.`)
+      continue
+    }
+    if (textOf(data.full_name) && textOf(data.email)) {
+      lines.push(`تم إنشاء الحساب: ${textOf(data.full_name)}.`)
+      continue
+    }
+    if (data.updated && typeof data.updated === 'object') {
+      lines.push('تم تعديل الحساب.')
+      continue
+    }
+    if (data.claimed_self === true || textOf(data.status)) {
+      const bits = [data.claimed_self === true ? 'تم استلام البلاغ' : '', textOf(data.status) ? `الحالة: ${textOf(data.status)}` : ''].filter(Boolean)
+      if (bits.length) lines.push(`${bits.join('، ')}.`)
     }
   }
   return lines.filter((line, index) => lines.indexOf(line) === index).join('\n')

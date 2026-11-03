@@ -367,8 +367,9 @@ export async function POST(request: Request) {
     const parsed = readJson(text)
     const preface = outcome.preface ? `${outcome.preface}\n` : ''
     const headers = { 'x-sanad-help-source': source }
-    const spoken = visibleAnswer(text) || answerFromTools(tools) || 'لم أستطع الإجابة. أعد صياغة السؤال.'
-    if (!parsed || typeof parsed.answer !== 'string') {
+    const fromTools = answerFromTools(tools)
+    const spoken = fromTools || visibleAnswer(text) || 'لم أستطع الإجابة. أعد صياغة السؤال.'
+    if (fromTools || !parsed || typeof parsed.answer !== 'string') {
       return Response.json({ answer: `${preface}${spoken}`.trim(), steps: [], fault_type: 'أخرى', urgent: false, needs_ticket: false, kind: 'help', choices: [], confirm: null, draft: null, followups: [] }, { headers })
     }
     const fault = String(parsed.fault_type || '')

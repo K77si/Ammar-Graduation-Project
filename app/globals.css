@@ -1065,8 +1065,7 @@ details.fold[open] > summary::after {
   flex-shrink: 0;
 }
 
-.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts,
-.ai-gemini:not(.ai-gemini-compact) .ai-dock .ai-shortcuts {
+.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 16px 20px;
@@ -1081,27 +1080,34 @@ details.fold[open] > summary::after {
   margin-block: auto;
 }
 
-.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts > .ai-gemini-group,
-.ai-gemini:not(.ai-gemini-compact) .ai-dock .ai-shortcuts > .ai-gemini-group {
+.ai-gemini:not(.ai-gemini-compact) .ai-thread > .ai-shortcuts > .ai-gemini-group {
   min-width: 0;
 }
 
 .ai-dock {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  flex: 0 1 auto;
-  min-height: 0;
+  gap: 10px;
+  flex: 0 0 auto;
   border-top: 1px solid rgba(139, 92, 246, 0.16);
   padding-top: 12px;
 }
 
-.ai-gemini:not(.ai-gemini-compact) .ai-dock .ai-shortcuts {
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: 190px;
-  overflow-x: hidden;
-  overflow-y: auto;
+.ai-gemini:not(.ai-gemini-compact) .ai-dock-chips {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 8px;
+  width: 100%;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  padding-bottom: 2px;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-dock-chips button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .ai-gemini:not(.ai-gemini-compact) .ai-gemini-bar {
@@ -1193,6 +1199,16 @@ details.fold[open] > summary::after {
   max-width: 100%;
   white-space: normal;
   border-radius: 999px;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-dock-chips.ai-gemini-prompts {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.ai-gemini:not(.ai-gemini-compact) .ai-dock-chips.ai-gemini-prompts button {
+  white-space: nowrap;
 }
 
 @media (max-width: 720px) {
