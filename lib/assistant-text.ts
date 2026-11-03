@@ -58,12 +58,16 @@ function stripJson(text: string) {
   return result
 }
 
+export function mostlyEnglish(line: string) {
+  const arabic = (line.match(/[\u0600-\u06FF]/g) || []).length
+  const latin = (line.match(/[A-Za-z]/g) || []).length
+  return (latin > 8 && arabic === 0) || (latin > 20 && latin > arabic * 2)
+}
+
 function leakLine(line: string) {
   if (/tool result|verified lookup|don't rely|would you like me|i'm sorry|i am sorry|cannot provide|can't provide/i.test(line)) return true
   if (/يتعارض مع ما ذكرته|قد أكون أخطأت/.test(line)) return true
-  const arabic = (line.match(/[\u0600-\u06FF]/g) || []).length
-  const latin = (line.match(/[A-Za-z]/g) || []).length
-  return latin > 8 && arabic === 0
+  return mostlyEnglish(line)
 }
 
 export function visibleAnswer(raw: string) {

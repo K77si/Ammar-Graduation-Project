@@ -335,6 +335,15 @@ function detailOf(row: Row, actorId: string, names: Map<string, string>) {
   return lines.join('\n')
 }
 
+function explains(question: string) {
+  return /فرق|اشرح|شرح|معنى|يعني/.test(question)
+}
+
+function priorityHelp(question: string) {
+  if (!explains(question) || !/عاجل/.test(question) || !/عادي/.test(question)) return ''
+  return 'عاجل يعني أن العمل متوقف، فيُقدَّم على غيره. عادي يعني أن العمل مستمر، ويُعالَج بعد العاجل وبعد تعطل الأقسام.'
+}
+
 function statusHelp(question: string) {
   if (!/معنى|يعني|شرح/.test(question)) return ''
   const lines = [
@@ -386,6 +395,7 @@ function helpPreface(desk: Desk, actor: Actor, question: string) {
 }
 
 function ticketQuestion(question: string) {
+  if (explains(question)) return false
   const about = /بلاغ|تذاكر|تذكرة|تذكره/.test(question)
   const asks = /كم|عدد|وش|ايش|إيش|ما هي|ماهي|عندنا|عندي|لدي|اليوم|عاجل|مفتوح|مسند|حالة|رقم|قائمة|وريني|اعطني|أعطني|متأخر|مكرر/.test(question)
   const fault = /مشكل|عطل|لا يعمل|ما يشتغل|ما تطبع|لا تطبع|طابع|شبك|انقطع|تعطل|جهاز|برنامج/.test(question)
@@ -402,9 +412,11 @@ function rowsForQuestion(desk: Desk, actor: Actor, question: string) {
   const mine = /عندي|لدي|لي\b|المسندة لي/.test(question) && !/عندنا/.test(question)
   if (mine && isTechnicianRole(desk.role)) rows = rows.filter((row) => row.assigned_technician === actor.id)
   if (/اليوم/.test(question)) rows = rows.filter((row) => row.created_at >= desk.start)
-  if (/عاجل/.test(question)) rows = rows.filter((row) => row.priority === 'عاجل')
+  const asksUrgent = /عاجل/.test(question)
+  const asksActive = /مفتوح|قيد|فعال/.test(question) || (/عندنا|عندكم/.test(question) && !/مغلق|منجز|الكل/.test(question))
+  if (asksUrgent) rows = rows.filter((row) => row.priority === 'عاجل')
   if (/لم تُسند|لم تسند|غير مسند|ما انسند|ما أُسند/.test(question)) rows = rows.filter((row) => !row.assigned_technician)
-  if (/مفتوح|قيد|فعال/.test(question) || (/عندنا|عندكم/.test(question) && !/مغلق|منجز|الكل/.test(question))) rows = rows.filter((row) => isActive(row.status))
+  if ((asksActive || asksUrgent) && !/مغلق|منجز|ملغ|الكل|السابق/.test(question)) rows = rows.filter((row) => isActive(row.status))
   if (/بانتظار/.test(question)) rows = rows.filter((row) => row.status === 'بانتظار الموظف')
   if (/متأخر/.test(question)) rows = rows.filter(delayed)
   return rows
@@ -431,7 +443,19 @@ function answerTickets(desk: Desk, actor: Actor, question: string): DeskReply {
   }
   const rows = rowsForQuestion(desk, actor, question)
   const mine = /عندي|لدي|لي\b|المسندة لي/.test(question) && !/عندنا/.test(question)
-  const scope = isTechnicianRole(desk.role) || desk.role === 'admin' ? (mine ? 'المسندة لك' : 'التذاكر الفعالة') : desk.role === 'department_head' ? `قسم ${departmentLabel(desk.department)}` : 'بلاغاتك'
+  const asksUrgent = /عاجل/.test(question)
+  const asksActive = /مفتوح|قيد|فعال/.test(question) || (/عندنا|عندكم/.test(question) && !/مغلق|منجز|الكل/.test(question))
+  const scope = mine && isTechnicianRole(desk.role)
+    ? 'المسندة لك'
+    : desk.role === 'department_head'
+      ? `قسم ${departmentLabel(desk.department)}`
+      : desk.role === 'user'
+        ? 'بلاغاتك'
+        : asksUrgent
+          ? 'البلاغات العاجلة'
+          : asksActive
+            ? 'التذاكر الفعالة'
+            : 'البلاغات'
   const title = `${scope}${/اليوم/.test(question) ? ' اليوم' : ''}`
   if (isTechnicianRole(desk.role)) return replyPick(desk, actor, rows, title)
   return say(listLines(rows, actor.id, desk.names, title), { kind: 'stats' })
@@ -504,7 +528,7 @@ function technicianDesk(desk: Desk, actor: Actor, question: string, ticketId = '
       confirm: { action: 'claim', label: 'استلم البلاغ', payload: { ticketId: hit.id } }
     })
   }
-  if (/أعد للمعالجة|اعد للمعالجة|أرجع للمعالجة|ارجع للمعالجة|رجعه للمعالجة|رجّعه للمعالجة|كمّل عليه|كمل عليه/.test(question)) {
+  if (/(?:إعادة|اعادة|أعده|اعده|أرجعه|ارجعه|رجّعه|رجعه|أعد|اعد|أرجع|ارجع)(?:\s+\S+){0,4}\s*للمعالجة|كمّ?ل عليه/.test(question)) {
     const hit = namedTicket(desk, actor, question, ticketId, 'mine')
     const mine = mineTickets(desk, actor).filter((row) => row.status === 'بانتظار الموظف' || row.status === 'منجزة')
     if (!hit) {
@@ -1373,6 +1397,8 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
     const continued = continueDraft(desk, actor, input)
     if (continued) return { type: 'reply', reply: continued }
   }
+  const priority = priorityHelp(question)
+  if (priority) return { type: 'reply', reply: say(priority, { kind: 'stats' }) }
   const meaning = /معنى|يعني|شرح الحالة/.test(question) ? statusHelp(question) : ''
   if (meaning) return { type: 'reply', reply: say(meaning, { kind: 'stats' }) }
   const role = desk.role

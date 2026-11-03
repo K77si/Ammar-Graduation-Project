@@ -5,7 +5,7 @@ import { rankSimilar } from '@/lib/similar'
 import { readTicketMeta } from '@/lib/ticket-thread'
 import { interpret } from '@/lib/assistant-desk'
 import { asksEmployeeCount } from '@/lib/assistant-tools'
-import { answerFromTools, visibleAnswer } from '@/lib/assistant-text'
+import { answerFromTools, mostlyEnglish, visibleAnswer } from '@/lib/assistant-text'
 import { CARD_REASON, errorStatus, needsCard, runSanadAgent } from '@/lib/sanad-agent'
 
 const DIRECT_MODEL = 'claude-haiku-5-5'
@@ -223,7 +223,7 @@ export async function POST(request: Request) {
     const answer = `${preface}${visibleAnswer(String(parsed.answer || '')) || spoken}`.trim()
     return Response.json({
       answer: (answer || 'لم أستطع الإجابة. أعد صياغة السؤال.').slice(0, 4000),
-      steps: countQuestion ? [] : (Array.isArray(parsed.steps) ? parsed.steps.map((step) => String(step).slice(0, 300)).slice(0, 5) : []),
+      steps: countQuestion ? [] : (Array.isArray(parsed.steps) ? parsed.steps.map((step) => String(step).slice(0, 300)).filter((step) => !mostlyEnglish(step)).slice(0, 5) : []),
       fault_type: (FAULT_TYPES as readonly string[]).includes(fault) ? fault : 'أخرى',
       urgent: parsed.urgent === true,
       needs_ticket: countQuestion ? false : parsed.needs_ticket === true,
