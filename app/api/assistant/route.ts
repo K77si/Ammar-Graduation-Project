@@ -1,17 +1,14 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { createGateway, generateText, stepCountIs } from 'ai'
 import { connection } from 'next/server'
 import { getActor, serviceClient } from '@/lib/server-auth'
 import { FAULT_TYPES } from '@/lib/workflow'
 import { rankSimilar } from '@/lib/similar'
 import { readTicketMeta } from '@/lib/ticket-thread'
 import { interpret } from '@/lib/assistant-desk'
-import { anthropicTools, asksEmployeeCount, assistantGatewayTools, runAssistantTool } from '@/lib/assistant-tools'
+import { asksEmployeeCount } from '@/lib/assistant-tools'
 import { answerFromTools, visibleAnswer } from '@/lib/assistant-text'
+import { CARD_REASON, errorStatus, needsCard, runSanadAgent } from '@/lib/sanad-agent'
 
-const GATEWAY_MODEL = 'anthropic/claude-haiku-5-5'
 const DIRECT_MODEL = 'claude-haiku-5-5'
-const CARD_REASON = 'AI Gateway requires a valid credit card on file'
 const WINDOW_MS = 10 * 60 * 1000
 const MAX_QUESTIONS = 30
 const usage = new Map<string, number[]>()
@@ -47,37 +44,6 @@ async function modelPaths(request: Request) {
     canGateway: Boolean(gatewayKey || oidc),
     canDirect: Boolean(anthropicKey)
   }
-}
-
-function errorStatus(error: unknown): number {
-  if (!error || typeof error !== 'object') return 0
-  const record = error as { status?: unknown; statusCode?: unknown; cause?: unknown }
-  const status = Number(record.statusCode ?? record.status ?? 0)
-  if (status) return status
-  return errorStatus(record.cause)
-}
-
-function errorText(error: unknown): string {
-  if (!error || typeof error !== 'object') return ''
-  const record = error as { message?: unknown; responseBody?: unknown; data?: unknown; cause?: unknown }
-  const data = record.data == null ? '' : typeof record.data === 'string' ? record.data : JSON.stringify(record.data)
-  return [
-    typeof record.message === 'string' ? record.message : '',
-    typeof record.responseBody === 'string' ? record.responseBody : '',
-    data,
-    errorText(record.cause)
-  ].filter(Boolean).join('\n')
-}
-
-function needsCard(error: unknown) {
-  return errorText(error).includes(CARD_REASON)
-}
-
-function thinkingRejected(error: unknown) {
-  if (needsCard(error)) return false
-  const status = errorStatus(error)
-  if (status && status !== 400 && status !== 422) return false
-  return /thinking|reasoning/i.test(errorText(error))
 }
 
 async function assistantEnabled() {
@@ -206,8 +172,8 @@ export async function POST(request: Request) {
         'لا تطلب كلمة مرور ولا أي بيانات سرية.'
       ]
   const system = [
-    'أنت سند، مساعد ذكي داخل منصة الدعم. تجيب على أي سؤال، وتتابع آخر الرسائل، وتنفّذ إجراءات البلاغات عندما يطلبها صاحب الجلسة.',
-    'أجب بالعربية الواضحة دائماً. لا تكتب إنجليزية، ولا تذكر أسماء الأدوات، ولا تلصق JSON، ولا تشرح طريقة بحثك.',
+    'أنت سند، وكيل الدعم داخل المنصة. المكتب يملك الأرقام والكتابة، وأنت تشرح وتستدعي الأداة عندما يلزم رقم أو إجراء.',
+    'أجب بالعربية الواضحة دائماً. لا تكتب إنجليزية، ولا تذكر أسماء الأدوات، ولا تلصق JSON في الجواب، ولا تشرح طريقة بحثك.',
     ...audienceRules,
     'لا تذكر تفاصيل بلاغ خاص إلا إذا كان السياق لفني أو مدير. لا تخترع رقم بلاغ ولا حالته. إذا لم تُرجع الأداة البلاغ فقل بجملة عربية إنه غير ظاهر، دون اعتذار طويل ودون ذكر ما قلته سابقاً.',
     'هوية المتصل تُؤخذ من جلسة الدخول. لا تطلب رقمه أو اسمه أو بريده لتحديد من هو، ولا تعامل اسماً في السؤال على أنه هوية الجلسة.',
@@ -222,147 +188,28 @@ export async function POST(request: Request) {
     outcome.facts ? `أرقام هذا الحساب. استخدمها حرفياً إذا سأل عن العدد:\n${outcome.facts}` : '',
     knowledge ? `حلول معتمدة لدى الجهة:\n${knowledge}` : '',
     pastFixes ? `حلول سابقة مشابهة. استفد منها ولا تذكر أسماء أشخاص أو أرقام بلاغات:\n${pastFixes}` : '',
-    'أعد JSON فقط بهذا الشكل دون أي نص خارجه:',
-    '{"answer": "الجواب الكامل", "steps": [], "fault_type": "أحد أنواع الأعطال أو أخرى", "urgent": false, "needs_ticket": false}',
-    'اجعل urgent صحيحاً فقط إذا كان العمل متوقفاً تماماً.'
+    'بعد الجواب العربي، إذا كان السؤال عطلاً، أضف سطراً أخيراً فقط بهذا الشكل:',
+    '{"answer": "نفس الجواب", "steps": [], "fault_type": "أحد أنواع الأعطال أو أخرى", "urgent": false, "needs_ticket": false}',
+    'اجعل urgent صحيحاً فقط إذا كان العمل متوقفاً تماماً. إذا استدعيت أداة فالجواب من نتيجتها، لا من تخمينك.'
   ].filter(Boolean).join('\n')
 
   const asked = question || 'ما الذي يظهر في الصورة؟'
-  const userContent = image
-    ? [
-        { type: 'file' as const, mediaType: image.mediaType, data: image.data },
-        { type: 'text' as const, text: asked }
-      ]
-    : asked
-  const priorMessages = history.flatMap((turn) => [
-    { role: 'user' as const, content: turn.q },
-    { role: 'assistant' as const, content: turn.a }
-  ])
-
   const countQuestion = asksEmployeeCount(question)
-  const gatewayTools = assistantGatewayTools(actor, request)
-
-  const toolRecords = (result: { steps?: Array<{ toolResults?: Array<{ output?: unknown; result?: unknown }> }>; toolResults?: Array<{ output?: unknown; result?: unknown }> }) => {
-    const fromSteps = (result.steps || []).flatMap((step) => step.toolResults || [])
-    return [...fromSteps, ...(result.toolResults || [])].flatMap((item) => {
-      const value = item.output ?? item.result
-      return value && typeof value === 'object' ? [value as Record<string, unknown>] : []
-    })
-  }
-  const gatewayText = async () => {
-    const model = paths.gatewayKey ? createGateway({ apiKey: paths.gatewayKey })(GATEWAY_MODEL) : GATEWAY_MODEL
-    const run = (disableThinking: boolean) => generateText({
-      model,
-      system,
-      tools: gatewayTools,
-      stopWhen: stepCountIs(4),
-      prepareStep: ({ stepNumber }) => (
-        stepNumber === 0 && countQuestion
-          ? { toolChoice: { type: 'tool', toolName: 'get_employees_count' } }
-          : { toolChoice: 'auto' }
-      ),
-      maxOutputTokens: 3000,
-      ...(disableThinking ? { reasoning: 'none' as const } : {}),
-      messages: [...priorMessages, { role: 'user' as const, content: userContent }]
-    })
-    try {
-      const result = await run(true)
-      return { text: result.text.trim(), tools: toolRecords(result) }
-    } catch (error) {
-      if (!thinkingRejected(error)) throw error
-      const result = await run(false)
-      return { text: result.text.trim(), tools: toolRecords(result) }
-    }
-  }
-
-  const directText = async () => {
-    const client = new Anthropic({ apiKey: paths.anthropicKey })
-    const content = image
-      ? [
-          { type: 'image' as const, source: { type: 'base64' as const, media_type: image.mediaType, data: image.data } },
-          { type: 'text' as const, text: asked }
-        ]
-      : asked
-    const run = async (disableThinking: boolean) => {
-      const messages: Anthropic.MessageParam[] = [
-        ...history.flatMap((turn) => [
-          { role: 'user' as const, content: turn.q },
-          { role: 'assistant' as const, content: turn.a }
-        ]),
-        { role: 'user', content }
-      ]
-      let text = ''
-      const tools: Array<Record<string, unknown>> = []
-      for (let step = 0; step < 3; step += 1) {
-        const message = await client.messages.create({
-          model: paths.directModel,
-          max_tokens: 3000,
-          system,
-          tools: anthropicTools,
-          tool_choice: step === 0 && countQuestion ? { type: 'tool', name: 'get_employees_count' } : { type: 'auto' },
-          ...(disableThinking ? { thinking: { type: 'disabled' as const } } : {}),
-          messages
-        })
-        text = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('').trim()
-        const calls = message.content.filter((part) => part.type === 'tool_use')
-        if (!calls.length) return { text, tools }
-        const assistantContent: Anthropic.ContentBlockParam[] = []
-        for (const part of message.content) {
-          if (part.type === 'text') assistantContent.push({ type: 'text', text: part.text })
-          else if (part.type === 'tool_use') assistantContent.push({ type: 'tool_use', id: part.id, name: part.name, input: part.input })
-          else if (part.type === 'thinking') assistantContent.push({ type: 'thinking', thinking: part.thinking, signature: part.signature })
-          else if (part.type === 'redacted_thinking') assistantContent.push({ type: 'redacted_thinking', data: part.data })
-        }
-        const results: Anthropic.ToolResultBlockParam[] = []
-        for (const part of calls) {
-          const output = await runAssistantTool(part.name, part.input, actor, request)
-          tools.push(output)
-          results.push({
-            type: 'tool_result',
-            tool_use_id: part.id,
-            content: JSON.stringify(output),
-            is_error: output.ok === false
-          })
-        }
-        messages.push({ role: 'assistant', content: assistantContent })
-        messages.push({ role: 'user', content: results })
-      }
-      return { text, tools }
-    }
-    try {
-      return await run(true)
-    } catch (error) {
-      if (!thinkingRejected(error)) throw error
-      return await run(false)
-    }
-  }
 
   try {
-    let text = ''
-    let tools: Array<Record<string, unknown>> = []
-    let source = ''
-    if (paths.canGateway) {
-      try {
-        const result = await gatewayText()
-        text = result.text
-        tools = result.tools
-        source = 'gateway'
-      } catch (error) {
-        if (!needsCard(error) || !paths.canDirect) {
-          if (needsCard(error)) return Response.json({ error: `${CARD_REASON}.` }, { status: 502 })
-          throw error
-        }
-        const result = await directText()
-        text = result.text
-        tools = result.tools
-        source = 'anthropic-fallback'
-      }
-    } else {
-      const result = await directText()
-      text = result.text
-      tools = result.tools
-      source = 'anthropic'
-    }
+    const result = await runSanadAgent({
+      request,
+      actor,
+      system,
+      history,
+      question: asked,
+      image,
+      countQuestion,
+      paths
+    })
+    const text = result.text
+    const tools = result.tools
+    const source = result.source
     console.info(`assistant help source=${source}`)
     const parsed = readJson(text)
     const preface = outcome.preface ? `${outcome.preface}\n` : ''

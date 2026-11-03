@@ -353,6 +353,14 @@ export function AiAssistant({
       return
     }
     setFiledNo(formatTicketNo(data[0].ticket_number))
+    const tried = (reply.steps || []).map((step) => String(step).trim()).filter(Boolean).slice(0, 5)
+    if (tried.length && data[0].id) {
+      await supabase.from('ticket_replies').insert({
+        ticket_id: data[0].id,
+        sender_name: 'سند',
+        message: `ما تم تجربته قبل البلاغ:\n${tried.map((step, index) => `${index + 1}. ${step}`).join('\n')}`
+      })
+    }
     const sessionToken = session.session?.access_token || ''
     if (data[0].id) {
       await fetch('/api/tickets/opened', {
