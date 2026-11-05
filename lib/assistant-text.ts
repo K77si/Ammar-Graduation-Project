@@ -70,6 +70,22 @@ function leakLine(line: string) {
   return mostlyEnglish(line)
 }
 
+export function agentGaveUp(text: string) {
+  return /لم أستطع|ما أعرف|ما اعرف|لا أستطيع|لا استطيع|لا أقدر|ما أقدر|الأداة المتاحة|أعد صياغة|من هذه الجلسة/.test(text)
+}
+
+export function briefLine(facts: string, question: string) {
+  const lines = facts.split('\n').map((line) => line.trim()).filter(Boolean)
+  const aboutDepartments = /أقسام|اقسام|قسم/.test(question)
+  const aboutAccounts = /حساب|موظف|فني|مستخدم|رئيس/.test(question)
+  const aboutTickets = /بلاغ|تذاكر|تذكرة|تذكره/.test(question)
+  const pick = (pattern: RegExp) => lines.find((line) => pattern.test(line)) || ''
+  if (aboutDepartments && !aboutAccounts) return pick(/قسم/)
+  if (aboutAccounts && !aboutDepartments) return pick(/حساب|صلاح/)
+  if (aboutTickets) return pick(/بلاغ/)
+  return ''
+}
+
 export function visibleAnswer(raw: string) {
   const source = schemaAnswer(raw) || raw || ''
   const lines = stripJson(source).split('\n').map((line) => line.trim()).filter(Boolean).filter((line) => !leakLine(line))

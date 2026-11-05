@@ -5,7 +5,7 @@ import { rankSimilar } from '@/lib/similar'
 import { readTicketMeta } from '@/lib/ticket-thread'
 import { interpret } from '@/lib/assistant-desk'
 import { asksDepartmentCatalog, asksEmployeeCount } from '@/lib/assistant-tools'
-import { answerFromTools, mostlyEnglish, visibleAnswer } from '@/lib/assistant-text'
+import { agentGaveUp, answerFromTools, briefLine, mostlyEnglish, visibleAnswer } from '@/lib/assistant-text'
 import { CARD_REASON, errorStatus, needsCard, runSanadAgent } from '@/lib/sanad-agent'
 
 const DIRECT_MODEL = 'claude-haiku-5-5'
@@ -185,6 +185,7 @@ export async function POST(request: Request) {
       ]
   const system = [
     'أنت سند، وكيل الدعم داخل المنصة. تجيب من صلاحية المتصل ومن بيانات هذه الجلسة فقط.',
+    'إذا لم تغطِ جملة جاهزة السؤال، فهذه مهمتك: افهم القصد، استدع الأداة التي تطابق النوع والصلاحية، ثم أجب بجملة عربية. لا تقل ما أعرف، ولا تطلب إعادة الصياغة، ولا تقل إن الأداة الوحيدة تعد الحسابات إذا كان السؤال عن الأقسام أو البلاغات.',
     'هيكل البيانات، ولا تخلط الأنواع:',
     '- الأقسام الحالية: قائمة إعدادات النظام. سؤال «كم قسم» يعني عدد هذه القائمة. الأداة get_departments. ليست عدد الحسابات ولا عدد البلاغات.',
     '- الحسابات: جدول الملفات. العدد بأداة get_employees_count ولمدير يملك صلاحية المستخدمين فقط. لا تستخدمها لعد الأقسام.',
@@ -214,7 +215,13 @@ export async function POST(request: Request) {
   const countQuestion = Boolean(forcedTool)
 
   try {
-    const result = await runSanadAgent({
+    const settle = (run: { text: string; tools: Array<Record<string, unknown>> }) => {
+      const fromTools = answerFromTools(run.tools)
+      const spoken = fromTools || visibleAnswer(run.text)
+      const answered = run.tools.some((item) => item.ok === true)
+      return { fromTools, spoken, answered }
+    }
+    let result = await runSanadAgent({
       request,
       actor,
       system,
@@ -224,22 +231,41 @@ export async function POST(request: Request) {
       forcedTool,
       paths
     })
+    let settled = settle(result)
+    if (!settled.answered && agentGaveUp(settled.spoken || result.text)) {
+      const fromBrief = briefLine(outcome.facts || '', asked)
+      if (fromBrief) settled = { fromTools: fromBrief, spoken: fromBrief, answered: true }
+      else {
+        result = await runSanadAgent({
+          request,
+          actor,
+          system,
+          history: [],
+          question: `الجواب الجاهز لم يغطِ هذا السؤال. استدع الأداة المناسبة وأجب بجملة عربية. إذا رفضت الأداة فانقل نص الرفض. لا تقل إنك لا تعرف.\n${asked}`,
+          image,
+          forcedTool,
+          paths
+        })
+        settled = settle(result)
+      }
+    }
     const text = result.text
-    const tools = result.tools
     const source = result.source
     console.info(`assistant help source=${source}`)
     const parsed = readJson(text)
     const preface = outcome.preface ? `${outcome.preface}\n` : ''
     const headers = { 'x-sanad-help-source': source }
-    const fromTools = answerFromTools(tools)
-    const spoken = fromTools || visibleAnswer(text) || 'لم أستطع الإجابة. أعد صياغة السؤال.'
-    if (fromTools || !parsed || typeof parsed.answer !== 'string') {
+    const fromTools = settled.fromTools
+    const recovered = briefLine(outcome.facts || '', asked) || 'حدد إن كان سؤالك عن قسم أو حساب أو بلاغ.'
+    const spoken = agentGaveUp(settled.spoken) ? recovered : (settled.spoken || recovered)
+    if ((fromTools && !agentGaveUp(fromTools)) || !parsed || typeof parsed.answer !== 'string') {
       return Response.json({ answer: `${preface}${spoken}`.trim(), steps: [], fault_type: 'أخرى', urgent: false, needs_ticket: false, kind: 'help', choices: [], confirm: null, draft: null, followups: [] }, { headers })
     }
     const fault = String(parsed.fault_type || '')
-    const answer = `${preface}${visibleAnswer(String(parsed.answer || '')) || spoken}`.trim()
+    let answer = `${preface}${visibleAnswer(String(parsed.answer || '')) || spoken}`.trim()
+    if (agentGaveUp(answer)) answer = `${preface}${briefLine(outcome.facts || '', asked) || 'حدد إن كان سؤالك عن قسم أو حساب أو بلاغ.'}`.trim()
     return Response.json({
-      answer: (answer || 'لم أستطع الإجابة. أعد صياغة السؤال.').slice(0, 4000),
+      answer: (answer || 'حدد إن كان سؤالك عن قسم أو حساب أو بلاغ.').slice(0, 4000),
       steps: countQuestion ? [] : (Array.isArray(parsed.steps) ? parsed.steps.map((step) => String(step).slice(0, 300)).filter((step) => !mostlyEnglish(step)).slice(0, 5) : []),
       fault_type: (FAULT_TYPES as readonly string[]).includes(fault) ? fault : 'أخرى',
       urgent: parsed.urgent === true,
