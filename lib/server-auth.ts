@@ -42,6 +42,12 @@ export function canManage(actor: Actor, key: string) {
   return actor.role === 'admin' && hasAdminPermission(actor.permissions, key)
 }
 
+const DEPARTMENT_KEYS = ['settings', 'overview', 'analytics', 'users'] as const
+
+export function canSeeDepartments(actor: Actor) {
+  return DEPARTMENT_KEYS.some((key) => canManage(actor, key))
+}
+
 export function isOwner(profile?: { role?: string | null; is_owner?: boolean | null } | null) {
   return profile?.role === 'admin' && profile.is_owner === true
 }

@@ -4,7 +4,7 @@ import { FAULT_TYPES } from '@/lib/workflow'
 import { rankSimilar } from '@/lib/similar'
 import { readTicketMeta } from '@/lib/ticket-thread'
 import { interpret } from '@/lib/assistant-desk'
-import { asksEmployeeCount } from '@/lib/assistant-tools'
+import { asksDepartmentCatalog, asksEmployeeCount } from '@/lib/assistant-tools'
 import { answerFromTools, mostlyEnglish, visibleAnswer } from '@/lib/assistant-text'
 import { CARD_REASON, errorStatus, needsCard, runSanadAgent } from '@/lib/sanad-agent'
 
@@ -134,7 +134,14 @@ export async function POST(request: Request) {
   if (question.length > 2000) return Response.json({ error: 'اختصر السؤال إلى 2000 حرف أو أقل.' }, { status: 400 })
   if (!allowRequest(actor.id)) return Response.json({ error: 'وصلت إلى الحد المسموح من الأسئلة. حاول بعد عشر دقائق.' }, { status: 429 })
 
-  const outcome = await interpret(actor, request, { question, choice: body?.choice, draft: body?.draft, confirm: body?.confirm, ticketId: body?.ticketId || '' })
+  const outcome = await interpret(actor, request, {
+    question,
+    choice: body?.choice,
+    draft: body?.draft,
+    confirm: body?.confirm,
+    ticketId: body?.ticketId || '',
+    history: readHistory(body?.history)
+  })
   if (outcome.type === 'reply') return pack(outcome.reply)
 
   const paths = await modelPaths(request)
@@ -154,7 +161,12 @@ export async function POST(request: Request) {
   const pastFixes = rankSimilar(question || 'الصورة المرفقة', solved, (row) => row.problem, 5, 0.25)
     .map((row) => `- المشكلة: ${row.problem.slice(0, 160)}${row.fault ? ` (${row.fault})` : ''} | الحل: ${row.resolution.slice(0, 240)}`)
     .join('\n')
-  const history = readHistory(body?.history)
+  const forcedTool = asksDepartmentCatalog(question)
+    ? 'get_departments'
+    : asksEmployeeCount(question)
+      ? 'get_employees_count'
+      : ''
+  const history = forcedTool ? [] : readHistory(body?.history)
   const audienceRules = forTechnician
     ? [
         'إذا كان السؤال عن بلاغ أو عطل: ساعد الفني على التشخيص. حوّل الوصف العامي إلى تشخيص فصيح في أول سطر، ثم خطوات إصلاح.',
@@ -172,20 +184,25 @@ export async function POST(request: Request) {
         'لا تطلب كلمة مرور ولا أي بيانات سرية.'
       ]
   const system = [
-    'أنت سند، وكيل الدعم داخل المنصة. المكتب يملك الأرقام والكتابة، وأنت تشرح وتستدعي الأداة عندما يلزم رقم أو إجراء.',
+    'أنت سند، وكيل الدعم داخل المنصة. تجيب من صلاحية المتصل ومن بيانات هذه الجلسة فقط.',
+    'هيكل البيانات، ولا تخلط الأنواع:',
+    '- الأقسام الحالية: قائمة إعدادات النظام. سؤال «كم قسم» يعني عدد هذه القائمة. الأداة get_departments. ليست عدد الحسابات ولا عدد البلاغات.',
+    '- الحسابات: جدول الملفات. العدد بأداة get_employees_count ولمدير يملك صلاحية المستخدمين فقط. لا تستخدمها لعد الأقسام.',
+    '- البلاغات: الموظف بلاغاته، رئيس القسم بلاغات قسمه غير الخاصة، الفني كل البلاغات، والمدير إذا ملك صلاحية البلاغات أو النظرة العامة أو التحليلات. الأداة get_tickets_summary.',
+    'صلاحيات مدير النظام منفصلة: النظرة العامة، البلاغات، المستخدمون، الاعتمادات، التحليلات، الإعدادات، حذف الحسابات، إعادة كلمة المرور. إذا رفضت الأداة فانقل نص الرفض كما هو.',
     'أجب بالعربية الواضحة دائماً. لا تكتب إنجليزية، ولا تذكر أسماء الأدوات، ولا تلصق JSON في الجواب، ولا تشرح طريقة بحثك.',
+    'لا تعتمد رقماً من رسائل سابقة. إذا تغيّر الموضوع فلا تُعد بيانات السؤال السابق.',
     ...audienceRules,
     'لا تذكر تفاصيل بلاغ خاص إلا إذا كان السياق لفني أو مدير. لا تخترع رقم بلاغ ولا حالته. إذا لم تُرجع الأداة البلاغ فقل بجملة عربية إنه غير ظاهر، دون اعتذار طويل ودون ذكر ما قلته سابقاً.',
     'هوية المتصل تُؤخذ من جلسة الدخول. لا تطلب رقمه أو اسمه أو بريده لتحديد من هو، ولا تعامل اسماً في السؤال على أنه هوية الجلسة.',
-    'لعدد الحسابات أو البحث أو إنشاء حساب أو تعديله أو ملخص البلاغات أو فتح بلاغ أو تغيير حالته، استدعِ الأداة ثم صغ النتيجة جملة عربية داخل answer. لا تنقل JSON.',
-    'إذا رفضت الأداة الإجراء فانقل نص الخطأ كما هو. لا تخترع عدداً ولا تدّعي أن حساباً أو بلاغاً تغيّر.',
-    'عدد الموظفين والبحث في الدليل وإنشاء الحسابات وتعديلها لمدير النظام الذي يملك صلاحية المستخدمين فقط.',
+    'لعدد الأقسام أو الحسابات أو البحث أو إنشاء حساب أو تعديله أو ملخص البلاغات أو فتح بلاغ أو تغيير حالته، استدعِ الأداة المناسبة ثم صغ النتيجة جملة عربية داخل answer. لا تنقل JSON.',
+    'إذا رفضت الأداة الإجراء فانقل نص الخطأ كما هو. لا تخترع عدداً ولا تدّعي أن حساباً أو قسماً أو بلاغاً تغيّر.',
     'في سؤال العدد اجعل steps فارغة وneeds_ticket خطأ حتى لو رُفض الطلب.',
     'فتح البلاغ لصاحب الجلسة. ملخص الموظف لبلاغاته. تغيير الحالة للفني أو لمدير يملك صلاحية البلاغات، والفني يستلم البلاغ لنفسه فقط.',
     'إذا وُجدت صورة، صف ما يظهر فيها ثم اربطه بخطوات الحل.',
     `أنواع الأعطال المعتمدة: ${FAULT_TYPES.join('، ')}.`,
     outcome.preface ? `تنبيهات من النظام، اذكرها إن كانت مهمة:\n${outcome.preface}` : '',
-    outcome.facts ? `أرقام هذا الحساب. استخدمها حرفياً إذا سأل عن العدد:\n${outcome.facts}` : '',
+    outcome.facts ? `بيانات هذه الجلسة الآن. كل رقم مربوط بنوعه، ولا يُنقل من الحسابات إلى الأقسام أو البلاغات:\n${outcome.facts}` : '',
     knowledge ? `حلول معتمدة لدى الجهة:\n${knowledge}` : '',
     pastFixes ? `حلول سابقة مشابهة. استفد منها ولا تذكر أسماء أشخاص أو أرقام بلاغات:\n${pastFixes}` : '',
     'بعد الجواب العربي، إذا كان السؤال عطلاً، أضف سطراً أخيراً فقط بهذا الشكل:',
@@ -194,7 +211,7 @@ export async function POST(request: Request) {
   ].filter(Boolean).join('\n')
 
   const asked = question || 'ما الذي يظهر في الصورة؟'
-  const countQuestion = asksEmployeeCount(question)
+  const countQuestion = Boolean(forcedTool)
 
   try {
     const result = await runSanadAgent({
@@ -204,7 +221,7 @@ export async function POST(request: Request) {
       history,
       question: asked,
       image,
-      countQuestion,
+      forcedTool,
       paths
     })
     const text = result.text

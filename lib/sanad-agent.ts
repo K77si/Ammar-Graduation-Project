@@ -15,6 +15,7 @@ export type AgentPaths = {
   canDirect: boolean
 }
 
+type ForcedTool = '' | 'get_departments' | 'get_employees_count'
 type AgentRun = { text: string; tools: Array<Record<string, unknown>>; source: string }
 
 export function errorStatus(error: unknown): number {
@@ -62,7 +63,7 @@ async function gatewayTurn(input: {
   history: { q: string; a: string }[]
   question: string
   image: AgentImage | null
-  countQuestion: boolean
+  forcedTool: ForcedTool
   actor: Actor
   request: Request
 }): Promise<AgentRun> {
@@ -79,8 +80,8 @@ async function gatewayTurn(input: {
     tools: assistantGatewayTools(input.actor, input.request),
     stopWhen: stepCountIs(4),
     prepareStep: ({ stepNumber }) => (
-      stepNumber === 0 && input.countQuestion
-        ? { toolChoice: { type: 'tool', toolName: 'get_employees_count' } }
+      stepNumber === 0 && input.forcedTool
+        ? { toolChoice: { type: 'tool', toolName: input.forcedTool } }
         : { toolChoice: 'auto' }
     ),
     maxOutputTokens: 3000,
@@ -109,7 +110,7 @@ async function directTurn(input: {
   history: { q: string; a: string }[]
   question: string
   image: AgentImage | null
-  countQuestion: boolean
+  forcedTool: ForcedTool
   actor: Actor
   request: Request
 }): Promise<AgentRun> {
@@ -136,7 +137,7 @@ async function directTurn(input: {
         max_tokens: 3000,
         system: input.system,
         tools: anthropicTools,
-        tool_choice: step === 0 && input.countQuestion ? { type: 'tool', name: 'get_employees_count' } : { type: 'auto' },
+        tool_choice: step === 0 && input.forcedTool ? { type: 'tool', name: input.forcedTool } : { type: 'auto' },
         ...(disableThinking ? { thinking: { type: 'disabled' as const } } : {}),
         messages
       })
@@ -181,7 +182,7 @@ export async function runSanadAgent(input: {
   history: { q: string; a: string }[]
   question: string
   image: AgentImage | null
-  countQuestion: boolean
+  forcedTool: ForcedTool
   paths: AgentPaths
 }): Promise<AgentRun> {
   if (input.paths.canDirect) {

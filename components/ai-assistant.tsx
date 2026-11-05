@@ -34,6 +34,26 @@ function threadKey(userId: string, mode: string) {
   return `sanad-thread:${userId}:${mode}`
 }
 
+function chatKeys(store: Storage) {
+  const keys: string[] = []
+  for (let index = 0; index < store.length; index += 1) {
+    const key = store.key(index)
+    if (key?.startsWith('sanad-thread:')) keys.push(key)
+  }
+  return keys
+}
+
+function forgetLegacyChat() {
+  if (typeof window === 'undefined') return
+  chatKeys(localStorage).forEach((key) => localStorage.removeItem(key))
+}
+
+function forgetChatHistory() {
+  if (typeof window === 'undefined') return
+  forgetLegacyChat()
+  chatKeys(sessionStorage).forEach((key) => sessionStorage.removeItem(key))
+}
+
 const MENUS: Record<Persona, Chip[]> = {
   admin: [
     { group: 'حسابات', need: 'users', label: 'إنشاء حساب', question: 'إنشاء حساب' },
@@ -152,9 +172,11 @@ export function AiAssistant({
   const [lastQuestion, setLastQuestion] = useState('')
   const restored = useRef(false)
   const askedRef = useRef(false)
+  const chatEpoch = useRef(0)
   const transcriptRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    forgetLegacyChat()
     if (compact) {
       restored.current = true
       return
@@ -168,7 +190,7 @@ export function AiAssistant({
       const userId = data.session?.user.id
       if (userId) {
         try {
-          const raw = localStorage.getItem(threadKey(userId, mode))
+          const raw = sessionStorage.getItem(threadKey(userId, mode))
           const saved = raw ? JSON.parse(raw) as { thread?: Turn[]; current?: Turn | null } : null
           const turns = Array.isArray(saved?.thread)
             ? saved.thread.filter((turn) => turn && typeof turn.q === 'string' && typeof turn.a === 'string').slice(-8)
@@ -179,7 +201,7 @@ export function AiAssistant({
             setReply({ answer: saved.current.a, steps: [], fault_type: '', urgent: false, needs_ticket: false, kind: 'stats' })
           }
         } catch {
-          localStorage.removeItem(threadKey(userId, mode))
+          sessionStorage.removeItem(threadKey(userId, mode))
         }
       }
       restored.current = true
@@ -188,13 +210,29 @@ export function AiAssistant({
   }, [supabase, mode, compact])
 
   useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event !== 'SIGNED_OUT') return
+      chatEpoch.current += 1
+      forgetChatHistory()
+      setThread([])
+      setReply(null)
+      setLastQuestion('')
+      setAsked('')
+      setDraft(null)
+    })
+    return () => sub.subscription.unsubscribe()
+  }, [supabase])
+
+  useEffect(() => {
     if (compact || !restored.current) return
+    const epoch = chatEpoch.current
     let alive = true
     supabase.auth.getSession().then(({ data }) => {
+      if (!alive || epoch !== chatEpoch.current) return
       const userId = data.session?.user.id
-      if (!alive || !userId) return
+      if (!userId) return
       const current = lastQuestion && reply?.answer ? { q: lastQuestion, a: reply.answer } : null
-      localStorage.setItem(threadKey(userId, mode), JSON.stringify({ thread, current }))
+      sessionStorage.setItem(threadKey(userId, mode), JSON.stringify({ thread, current }))
     })
     return () => { alive = false }
   }, [thread, lastQuestion, reply, supabase, mode, compact])

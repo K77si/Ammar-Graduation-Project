@@ -13,7 +13,7 @@ import {
   roleLabel,
   storedDepartment
 } from '@/lib/display'
-import { canManage, isOwner, serviceClient, type Actor } from '@/lib/server-auth'
+import { canManage, canSeeDepartments, isOwner, serviceClient, type Actor } from '@/lib/server-auth'
 import { FAULT_TYPES } from '@/lib/workflow'
 
 const ROLE_DENIED = 'هذا الإجراء غير متاح لهذا الدور.'
@@ -38,8 +38,13 @@ const objectSchema = (properties: JSONSchema7['properties']): JSONSchema7 => ({
 
 const TOOLS: ToolSpec[] = [
   {
+    name: 'get_departments',
+    description: 'يعيد الأقسام الحالية من إعدادات النظام، لا من عدد الحسابات ولا من البلاغات. لمدير يملك الإعدادات أو النظرة العامة أو التحليلات أو المستخدمين. رئيس القسم يرى اسم قسمه فقط. لا تخترع القائمة.',
+    schema: objectSchema({})
+  },
+  {
     name: 'get_employees_count',
-    description: 'يعد حسابات جدول profiles. متاح فقط لمدير النظام الذي يملك صلاحية المستخدمين. الموظف والفني ورئيس القسم يُرفضون. لا تخترع الرقم، ولا ترسل هوية المتصل.',
+    description: 'يعد حسابات جدول profiles فقط، وليس الأقسام. الأقسام أداة get_departments. متاح لمدير النظام الذي يملك صلاحية المستخدمين. الموظف والفني ورئيس القسم يُرفضون. لا تخترع الرقم، ولا ترسل هوية المتصل.',
     schema: objectSchema({
       role: { type: 'string', enum: ['user', 'technician', 'department_head', 'admin'], description: 'اختياري. technician يشمل manager. اتركه فارغاً لعد كل الحسابات.' },
       department: { type: 'string', description: 'اسم القسم إن طُلب قسم محدد.' },
@@ -119,7 +124,20 @@ export const anthropicTools: Anthropic.Tool[] = TOOLS.map((item) => ({
   input_schema: item.schema as Anthropic.Tool.InputSchema
 }))
 
+export function asksDepartmentCatalog(question: string) {
+  const folded = question.replace(/[أإآ]/g, 'ا')
+  const aboutDepartments = /أقسام|اقسام|قسم/.test(question) || /اقسام|قسم/.test(folded)
+  if (!aboutDepartments) return false
+  const catalogWord = /أقسام|اقسام/.test(question) || /اقسام/.test(folded)
+  if (/أضف|اضف|قسم جديد|اسم قسم|انقل|حوّ?ل|حول|غيّ?ر دور|غير دور|بلاغ|عطل|مشكل|موظف|حساب|مستخدم|رئيس|جهاز|طابع|شبك/.test(question)) return false
+  if (/فني/.test(question) && !catalogWord) return false
+  if (/وش|ايش|إيش|ما هي|ماهي/.test(question) && (catalogWord || /القسم/.test(folded))) return true
+  return /كم|عدد|عدّ/.test(question) || /الحالي|قائمة|المسجل|وريني|اعرض|أعطني|اعطني/.test(question)
+}
+
 export function asksEmployeeCount(question: string) {
+  if (asksDepartmentCatalog(question)) return false
+  if (/بلاغ|تذاكر|تذكرة|تذكره|عطل|مشكل|فاضي|فاضل/.test(question)) return false
   return /كم|عدد/.test(question) && /موظف|حساب|فني|مستخدم|رئيس|مدير/.test(question)
 }
 
@@ -173,8 +191,8 @@ function roleList(value: string): string[] | null {
 }
 
 async function getEmployeesCount(actor: Actor, raw: unknown): Promise<ToolOutput> {
-  const denied = denyDirectory(actor)
-  if (denied) return denied
+  if (actor.role !== 'admin') return { ok: false, error: 'عدد الحسابات لمدير النظام الذي يملك صلاحية المستخدمين.' }
+  if (!canManage(actor, 'users')) return { ok: false, error: 'عدد الحسابات من صلاحية المستخدمين، وهو غير عدد الأقسام وعدد البلاغات.' }
   const input = asRecord(raw)
   const role = textField(input.role)
   const roles = roleList(role)
@@ -187,7 +205,27 @@ async function getEmployeesCount(actor: Actor, raw: unknown): Promise<ToolOutput
   if (approvedOnly) query = query.eq('is_approved', true)
   const { count, error } = await query
   if (error) return { ok: false, error: 'تعذر عد الحسابات.' }
-  return { ok: true, count: count ?? 0, role: role || 'all', department: department || 'all', approved_only: approvedOnly }
+  return { ok: true, entity: 'accounts', count: count ?? 0, role: role || 'all', department: department || 'all', approved_only: approvedOnly }
+}
+
+async function getDepartments(actor: Actor, department: string): Promise<ToolOutput> {
+  if (actor.role === 'department_head') {
+    const name = department ? departmentLabel(department) : ''
+    if (!name || name === 'غير محدد') return { ok: false, error: 'لا يوجد قسم مرتبط بحسابك.' }
+    return { ok: true, entity: 'departments', scope: 'own', count: 1, departments: [name] }
+  }
+  if (actor.role !== 'admin') {
+    return { ok: false, error: 'قائمة الأقسام لا تظهر لهذا الدور. الأقسام إعدادات النظام وليست عدد الحسابات.' }
+  }
+  if (!canSeeDepartments(actor)) {
+    return { ok: false, error: 'عدد الأقسام الحالية يحتاج صلاحية الإعدادات أو النظرة العامة أو التحليلات أو المستخدمين.' }
+  }
+  const { data, error } = await serviceClient().from('system_settings').select('departments').eq('id', 'main_settings').maybeSingle()
+  if (error) return { ok: false, error: 'تعذر قراءة الأقسام.' }
+  const departments = Array.isArray(data?.departments) && data.departments.length
+    ? (data.departments as string[]).map((item) => departmentLabel(item))
+    : [...DEPARTMENTS]
+  return { ok: true, entity: 'departments', scope: 'settings', count: departments.length, departments }
 }
 
 async function searchEmployees(actor: Actor, raw: unknown): Promise<ToolOutput> {
@@ -396,9 +434,15 @@ async function updateEmployee(actor: Actor, raw: unknown): Promise<ToolOutput> {
   return { ok: true, user_id: person.id, updated: patch }
 }
 
+function canSeeTicketCounts(actor: Actor) {
+  return canManage(actor, 'tickets') || canManage(actor, 'overview') || canManage(actor, 'analytics')
+}
+
 async function getTicketsSummary(actor: Actor, request: Request): Promise<ToolOutput> {
   const session = await sessionRole(actor)
-  if (session.role === 'admin' && !canManage(session.actor, 'tickets')) return { ok: false, error: TICKETS_DENIED }
+  if (session.role === 'admin' && !canSeeTicketCounts(session.actor)) {
+    return { ok: false, error: 'أرقام البلاغات تحتاج صلاحية البلاغات أو النظرة العامة أو التحليلات.' }
+  }
   const client = userClient(request)
   let memberIds: string[] = []
   if (session.role === 'department_head') {
@@ -434,6 +478,7 @@ async function createTicket(actor: Actor, request: Request, raw: unknown): Promi
   const priority = textField(input.priority) === 'عاجل' ? 'عاجل' : 'عادي'
   const priorityReason = textField(input.priority_reason)
   const isOutage = input.is_outage === true
+  if (isOutage && actor.role !== 'department_head') return { ok: false, error: 'بلاغ تعطل القسم يفتحه رئيس القسم فقط.' }
   if (title.length < 5) return { ok: false, error: 'اكتب وصف المشكلة في 5 أحرف على الأقل.' }
   if (!(FAULT_TYPES as readonly string[]).includes(fault)) return { ok: false, error: `نوع العطل يجب أن يكون أحد: ${FAULT_TYPES.join('، ')}.` }
   if (priority === 'عاجل' && !isOutage && priorityReason.length < 3) return { ok: false, error: 'البلاغ العاجل يحتاج سبب وقوف الشغل.' }
@@ -494,6 +539,16 @@ async function updateTicketStatus(actor: Actor, request: Request, raw: unknown):
   if (!status && !assignSelf && !technicianRaw) return { ok: false, error: 'حدد الحالة، أو استلام البلاغ، أو الفني.' }
   const ticket = await ticketIdFrom(request, textField(input.ticket_id), textField(input.ticket_number))
   if (!ticket) return { ok: false, error: 'حدد رقم البلاغ الظاهر لك.' }
+  if (tech) {
+    if (technicianRaw && technicianRaw !== actor.id) {
+      return { ok: false, error: 'الفني يستلم البلاغ لنفسه فقط. إسناد فني آخر لمدير يملك صلاحية البلاغات.' }
+    }
+    const { data: row } = await serviceClient().from('tickets').select('assigned_technician').eq('id', ticket).maybeSingle()
+    const assignee = typeof row?.assigned_technician === 'string' ? row.assigned_technician : ''
+    const claiming = assignSelf || technicianRaw === actor.id
+    if (claiming && assignee && assignee !== actor.id) return { ok: false, error: 'البلاغ مع فني آخر.' }
+    if (!claiming && assignee !== actor.id) return { ok: false, error: 'هذا الإجراء للبلاغ المسند إليك.' }
+  }
   const client = userClient(request)
   let claimedSelf = false
   if (assignSelf || (tech && technicianRaw === actor.id)) {
@@ -522,6 +577,7 @@ async function updateTicketStatus(actor: Actor, request: Request, raw: unknown):
 export async function runAssistantTool(name: string, raw: unknown, actor: Actor, request: Request): Promise<ToolOutput> {
   try {
     const session = await sessionRole(actor)
+    if (name === 'get_departments') return getDepartments(session.actor, session.department)
     if (name === 'get_employees_count') return getEmployeesCount(session.actor, raw)
     if (name === 'search_employees') return searchEmployees(session.actor, raw)
     if (name === 'create_employee') return createEmployee(session.actor, raw)
@@ -536,14 +592,23 @@ export async function runAssistantTool(name: string, raw: unknown, actor: Actor,
 }
 
 export function assistantGatewayTools(actor: Actor, request: Request) {
-  const execute = (name: string) => async (input: unknown) => runAssistantTool(name, input, actor, request)
+  const defined = (name: string) => {
+    const item = TOOLS.find((entry) => entry.name === name)
+    if (!item) throw new Error(name)
+    return tool({
+      description: item.description,
+      inputSchema: jsonSchema(item.schema),
+      execute: async (input: unknown) => runAssistantTool(name, input, actor, request)
+    })
+  }
   return {
-    get_employees_count: tool({ description: TOOLS[0].description, inputSchema: jsonSchema(TOOLS[0].schema), execute: execute('get_employees_count') }),
-    search_employees: tool({ description: TOOLS[1].description, inputSchema: jsonSchema(TOOLS[1].schema), execute: execute('search_employees') }),
-    create_employee: tool({ description: TOOLS[2].description, inputSchema: jsonSchema(TOOLS[2].schema), execute: execute('create_employee') }),
-    update_employee: tool({ description: TOOLS[3].description, inputSchema: jsonSchema(TOOLS[3].schema), execute: execute('update_employee') }),
-    get_tickets_summary: tool({ description: TOOLS[4].description, inputSchema: jsonSchema(TOOLS[4].schema), execute: execute('get_tickets_summary') }),
-    create_ticket: tool({ description: TOOLS[5].description, inputSchema: jsonSchema(TOOLS[5].schema), execute: execute('create_ticket') }),
-    update_ticket_status: tool({ description: TOOLS[6].description, inputSchema: jsonSchema(TOOLS[6].schema), execute: execute('update_ticket_status') })
+    get_departments: defined('get_departments'),
+    get_employees_count: defined('get_employees_count'),
+    search_employees: defined('search_employees'),
+    create_employee: defined('create_employee'),
+    update_employee: defined('update_employee'),
+    get_tickets_summary: defined('get_tickets_summary'),
+    create_ticket: defined('create_ticket'),
+    update_ticket_status: defined('update_ticket_status')
   }
 }

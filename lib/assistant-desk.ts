@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
-import { canManage, isOwner, serviceClient, type Actor } from '@/lib/server-auth'
+import { permissionSummary } from '@/lib/admin-access'
+import { asksDepartmentCatalog, asksEmployeeCount } from '@/lib/assistant-tools'
+import { canManage, canSeeDepartments, isOwner, serviceClient, type Actor } from '@/lib/server-auth'
 import { writeAudit } from '@/lib/audit'
 import { logSanadReply, tagRecentTicketEvents } from '@/lib/sanad-log'
 import { FAULT_TYPES, isActive } from '@/lib/workflow'
@@ -35,6 +37,7 @@ export type DeskInput = {
   draft?: Record<string, string> | null
   confirm?: { action: string; payload: Record<string, string> } | null
   ticketId?: string
+  history?: { q: string; a: string }[]
 }
 export type DeskOutcome =
   | { type: 'reply'; reply: DeskReply }
@@ -69,7 +72,16 @@ type Person = {
   availability: string | null
   is_owner: boolean | null
 }
-type Desk = {
+export type AccountCounts = {
+  all: number
+  user: number
+  technician: number
+  department_head: number
+  admin: number
+  department: string
+}
+
+export type Desk = {
   role: string
   department: string
   permissions: string[] | null
@@ -80,6 +92,7 @@ type Desk = {
   people: Person[]
   names: Map<string, string>
   departments: string[]
+  accountCounts?: AccountCounts | null
   templates: string[]
   settings: { ai_enabled: boolean; email_alerts: boolean; strict_auth: boolean; force_password_change: boolean }
 }
@@ -95,6 +108,17 @@ const STAR_CHOICES: DeskChoice[] = [1, 2, 3, 4, 5].map((star) => ({ id: String(s
 
 function say(answer: string, extra: Partial<DeskReply> = {}): DeskReply {
   return { answer, kind: 'action', steps: [], ...extra }
+}
+
+export function ticketInScope(role: string, actorId: string, department: string, memberIds: string[], row: { user_id?: string | null; is_private?: boolean | null; is_outage?: boolean | null; affected_department?: string | null }) {
+  if (isTechnicianRole(role) || role === 'admin') return true
+  if (role === 'department_head') {
+    if (row.is_private) return false
+    const ownDepartment = departmentLabel(department)
+    if (row.is_outage && ownDepartment !== 'غير محدد' && departmentLabel(row.affected_department) === ownDepartment) return true
+    return memberIds.includes(row.user_id || '')
+  }
+  return row.user_id === actorId
 }
 
 function riyadhStart(daysAgo = 0) {
@@ -279,7 +303,7 @@ async function loadDesk(actor: Actor): Promise<Desk> {
     start,
     weekStart,
     prevStart,
-    rows: [...merged.values()],
+    rows: [...merged.values()].filter((row) => ticketInScope(role, actor.id, department, memberIds, row)),
     people,
     names,
     departments,
@@ -388,14 +412,20 @@ function helpPreface(desk: Desk, actor: Actor, question: string) {
   const closed = desk.rows.find((row) => row.user_id === actor.id && (row.status === 'مغلقة' || row.status === 'منجزة') && Date.now() - new Date(row.created_at).getTime() < 10 * 86400000 && similarity(question, problemOf(row)) >= 0.5)
   if (/رجعت|عادت|رجعت المشكلة|من جديد/.test(question) && closed) bits.push(`يمكن إعادة فتح ${formatTicketNo(closed.ticket_number)} خلال 7 أيام من إنجازه بدل بلاغ جديد.`)
   const group = clusters(desk.rows)
-  if (group.length && (isTechnicianRole(desk.role) || desk.role === 'admin' || desk.role === 'department_head')) {
+  if (group.length && desk.role !== 'user' && canSeeTickets(actor, desk.role)) {
     bits.push(`تنبيه عطل جماعي: ${group.map(([fault, count]) => `${fault} (${count})`).join('، ')} خلال الساعات الأخيرة.`)
   }
   return bits.join('\n')
 }
 
+function wantsOwnTickets(question: string) {
+  return /بلاغاتي|تذاكري|عندي|لدي|لي\b|المسندة لي/.test(question) && !/عندنا/.test(question)
+}
+
 function ticketQuestion(question: string) {
   if (explains(question)) return false
+  if (asksDepartmentCatalog(question) || asksEmployeeCount(question)) return false
+  if (/بلاغاتي|تذاكري/.test(question)) return true
   const about = /بلاغ|تذاكر|تذكرة|تذكره/.test(question)
   const asks = /كم|عدد|وش|ايش|إيش|ما هي|ماهي|عندنا|عندي|لدي|اليوم|عاجل|مفتوح|مسند|حالة|رقم|قائمة|وريني|اعطني|أعطني|متأخر|مكرر/.test(question)
   const fault = /مشكل|عطل|لا يعمل|ما يشتغل|ما تطبع|لا تطبع|طابع|شبك|انقطع|تعطل|جهاز|برنامج/.test(question)
@@ -409,8 +439,9 @@ function rowsForQuestion(desk: Desk, actor: Actor, question: string) {
     return hit ? [hit] : []
   }
   let rows = desk.rows
-  const mine = /عندي|لدي|لي\b|المسندة لي/.test(question) && !/عندنا/.test(question)
+  const mine = wantsOwnTickets(question)
   if (mine && isTechnicianRole(desk.role)) rows = rows.filter((row) => row.assigned_technician === actor.id)
+  if (mine && !isTechnicianRole(desk.role)) rows = rows.filter((row) => row.user_id === actor.id)
   if (/اليوم/.test(question)) rows = rows.filter((row) => row.created_at >= desk.start)
   const asksUrgent = /عاجل/.test(question)
   const asksActive = /مفتوح|قيد|فعال/.test(question) || (/عندنا|عندكم/.test(question) && !/مغلق|منجز|الكل/.test(question))
@@ -433,7 +464,139 @@ function replyPick(desk: Desk, actor: Actor, rows: Row[], title: string): DeskRe
   })
 }
 
+function canSeeTickets(actor: Actor, role: string) {
+  if (role !== 'admin') return true
+  return canManage(actor, 'tickets') || canManage(actor, 'overview') || canManage(actor, 'analytics')
+}
+
+function departmentCatalogReply(desk: Desk, actor: Actor): DeskReply {
+  if (desk.role === 'department_head') {
+    const name = departmentLabel(desk.department)
+    return say(name && name !== 'غير محدد' ? `صلاحيتك على قسمك فقط: ${name}.` : 'لا يوجد قسم مرتبط بحسابك.', { kind: 'stats' })
+  }
+  if (desk.role !== 'admin') return say('قائمة الأقسام لا تظهر لهذا الدور. الأقسام إعدادات النظام وليست عدد الحسابات.', { kind: 'stats' })
+  if (!canSeeDepartments(actor)) return say('عدد الأقسام الحالية يحتاج صلاحية الإعدادات أو النظرة العامة أو التحليلات أو المستخدمين.', { kind: 'stats' })
+  const names = desk.departments
+  return say(names.length ? `الأقسام الحالية ${names.length}: ${names.join('، ')}.` : 'لا توجد أقسام مسجّلة في الإعدادات.', { kind: 'stats' })
+}
+
+function mentionedDepartment(desk: Desk, question: string) {
+  return [...desk.departments].sort((a, b) => b.length - a.length).find((name) => name.length >= 2 && question.includes(name)) || ''
+}
+
+function accountSlice(question: string): keyof Omit<AccountCounts, 'department'> {
+  const technician = /فني/.test(question)
+  const head = /رئيس/.test(question)
+  const admin = /مدير/.test(question)
+  const employee = /موظف/.test(question)
+  const generic = /حساب|مستخدم/.test(question)
+  const picked = [technician, head, admin, employee].filter(Boolean).length
+  if (generic || picked !== 1) return 'all'
+  if (technician) return 'technician'
+  if (head) return 'department_head'
+  if (admin) return 'admin'
+  return 'user'
+}
+
+function accountLabel(slice: keyof Omit<AccountCounts, 'department'>) {
+  if (slice === 'user') return 'عدد حسابات الموظفين'
+  if (slice === 'technician') return 'عدد حسابات الفنيين'
+  if (slice === 'department_head') return 'عدد حسابات رؤساء الأقسام'
+  if (slice === 'admin') return 'عدد حسابات مديري النظام'
+  return 'عدد الحسابات'
+}
+
+function peopleAccountCount(desk: Desk, slice: keyof Omit<AccountCounts, 'department'>, department: string) {
+  let people = desk.people
+  if (department) people = people.filter((person) => departmentLabel(person.department) === department)
+  if (slice === 'user') return people.filter((person) => person.role === 'user').length
+  if (slice === 'technician') return people.filter((person) => isTechnicianRole(person.role)).length
+  if (slice === 'department_head') return people.filter((person) => person.role === 'department_head').length
+  if (slice === 'admin') return people.filter((person) => person.role === 'admin').length
+  return people.length
+}
+
+function accountCatalogReply(desk: Desk, actor: Actor, question: string): DeskReply {
+  if (desk.role !== 'admin' || !canManage(actor, 'users')) {
+    return say('عدد الحسابات من صلاحية المستخدمين، وهو غير عدد الأقسام وغير عدد البلاغات.', { kind: 'stats' })
+  }
+  const slice = accountSlice(question)
+  const department = mentionedDepartment(desk, question)
+  const counts = desk.accountCounts
+  const count = counts && counts.department === department ? counts[slice] : peopleAccountCount(desk, slice, department)
+  const where = department ? ` في ${department}` : ''
+  return say(`${accountLabel(slice)}${where}: ${count}.`, { kind: 'stats' })
+}
+
+async function loadAccountCounts(desk: Desk, question: string): Promise<AccountCounts | null> {
+  const department = mentionedDepartment(desk, question)
+  const db = serviceClient()
+  const roles = ['user', 'technician', 'manager', 'department_head', 'admin'] as const
+  try {
+    const pairs = await Promise.all(roles.map(async (role) => {
+      let query = db.from('profiles').select('id', { count: 'exact', head: true }).eq('role', role)
+      if (department) query = query.eq('department', department)
+      const { count, error } = await query
+      if (error) throw error
+      return [role, count ?? 0] as const
+    }))
+    const map = Object.fromEntries(pairs) as Record<string, number>
+    return {
+      all: pairs.reduce((sum, [, count]) => sum + count, 0),
+      user: map.user || 0,
+      technician: (map.technician || 0) + (map.manager || 0),
+      department_head: map.department_head || 0,
+      admin: map.admin || 0,
+      department
+    }
+  } catch {
+    return null
+  }
+}
+
+function ticketFollowup(question: string, history: { q: string }[]) {
+  const text = question.trim()
+  if (asksDepartmentCatalog(text) || asksEmployeeCount(text)) return ''
+  const shortUrgent = /^(?:طيب\s*)?والعاجل(?:ة|ات)?\s*\??$/.test(text)
+  const fromThose = /منها|منهم/.test(text) && /عاجل|مفتوح|بلاغ/.test(text)
+  if (!shortUrgent && !fromThose && !/والعاجل منها|العاجل منها/.test(text)) return ''
+  const previous = [...history].reverse().find((turn) => /بلاغ|تذاكر|تذكرة|تذكره/.test(turn.q) && !asksDepartmentCatalog(turn.q) && !asksEmployeeCount(turn.q))
+  if (!previous) return 'none'
+  if (/عاجل/.test(text) && !/عاجل/.test(previous.q)) return `${previous.q} العاجلة`
+  return previous.q
+}
+
+function deniedAdminAction(desk: Desk, question: string): DeskReply | null {
+  if (desk.role === 'admin') return null
+  if (/إنشاء حساب|انشاء حساب|أنشئ حساب|انشئ حساب|أضف مستخدم|اضف مستخدم|حساب جديد|سوّ?ب\s*يوزر/.test(question)) {
+    return say('إنشاء الحسابات لمدير النظام الذي يملك صلاحية المستخدمين.', { kind: 'stats' })
+  }
+  if (/(?:تغيير|تغير|غيّ?ر|بدّ?ل|بدل|إعادة تعيين|اعادة تعيين|أعد تعيين|اعد تعيين).{0,40}(?:كلمة\s*(?:السر|المرور)|باسورد)|(?:كلمة\s*(?:السر|المرور)|باسورد).{0,40}(?:جديد|غيّ?ر|بدّ?ل|تغيير)/.test(question)) {
+    return say('تغيير كلمة مرورك من صفحة الدخول. تغيير كلمة مرور شخص آخر لمدير يملك صلاحية إعادة التعيين، ولا تُكتب الكلمة في المحادثة.', { kind: 'stats' })
+  }
+  if (/احذف حساب|حذف حساب|احذف المستخدم|حذف المستخدم/.test(question)) return say('حذف الحساب لمدير النظام الذي يملك صلاحية حذف الحسابات.', { kind: 'stats' })
+  if (/تعطيل حساب|أوقف حساب|اوقف حساب|عطّل حساب|عطل حساب/.test(question)) return say('تعطيل الحساب لمدير النظام الذي يملك صلاحية الاعتمادات.', { kind: 'stats' })
+  if (/أضف قسم|اضف قسم|قسم جديد/.test(question)) return say('إضافة الأقسام لمدير النظام الذي يملك صلاحية الإعدادات.', { kind: 'stats' })
+  if (/أسند|اسند|إسناد/.test(question)) {
+    if (isTechnicianRole(desk.role)) return say('الفني يستلم البلاغ لنفسه من «استلم البلاغ». إسناد البلاغ لفني آخر لمدير يملك صلاحية البلاغات.', { kind: 'stats' })
+    return say('إسناد البلاغ لمدير النظام الذي يملك صلاحية البلاغات.', { kind: 'stats' })
+  }
+  if (/انقل|غيّر دور|غير دور/.test(question)) return say('تعديل الحساب لمدير النظام الذي يملك صلاحية المستخدمين.', { kind: 'stats' })
+  if (/للأسئلة الشائعة|للاسئلة الشائعة|أضف الحل|اضف الحل/.test(question)) return say('إضافة الحلول للأسئلة الشائعة لمدير يملك صلاحية الإعدادات.', { kind: 'stats' })
+  return null
+}
+
+function sessionBrief(desk: Desk, actor: Actor, question: string) {
+  const lines = [`الدور: ${roleLabel(desk.role)}.`]
+  if (desk.role === 'admin') lines.push(`الصلاحيات: ${permissionSummary(actor.permissions)}.`)
+  if (desk.role === 'department_head') lines.push(`القسم الظاهر لك: ${departmentLabel(desk.department)}.`)
+  else if (!canSeeDepartments(actor)) lines.push('قائمة الأقسام غير ظاهرة لهذه الصلاحية.')
+  if (/بلاغ|تذاكر|تذكرة|تذكره/.test(question) && !asksDepartmentCatalog(question) && !asksEmployeeCount(question)) lines.push(answerTickets(desk, actor, question).answer)
+  return lines.join('\n')
+}
+
 function answerTickets(desk: Desk, actor: Actor, question: string): DeskReply {
+  if (!canSeeTickets(actor, desk.role)) return say('أرقام البلاغات تحتاج صلاحية البلاغات أو النظرة العامة أو التحليلات.', { kind: 'stats' })
   const wanted = question.match(/(\d{3,})/)
   if (wanted) {
     const hit = ticketByNumber(desk, wanted[1])
@@ -442,26 +605,29 @@ function answerTickets(desk: Desk, actor: Actor, question: string): DeskReply {
     return say(lineOf(hit, actor.id, desk.names), { kind: 'stats' })
   }
   const rows = rowsForQuestion(desk, actor, question)
-  const mine = /عندي|لدي|لي\b|المسندة لي/.test(question) && !/عندنا/.test(question)
+  const mine = wantsOwnTickets(question)
   const asksUrgent = /عاجل/.test(question)
   const asksActive = /مفتوح|قيد|فعال/.test(question) || (/عندنا|عندكم/.test(question) && !/مغلق|منجز|الكل/.test(question))
   const scope = mine && isTechnicianRole(desk.role)
     ? 'المسندة لك'
-    : desk.role === 'department_head'
-      ? `قسم ${departmentLabel(desk.department)}`
-      : desk.role === 'user'
-        ? 'بلاغاتك'
+    : mine || desk.role === 'user'
+      ? 'بلاغاتك'
+      : desk.role === 'department_head'
+        ? `قسم ${departmentLabel(desk.department)}`
         : asksUrgent
           ? 'البلاغات العاجلة'
           : asksActive
             ? 'التذاكر الفعالة'
             : 'البلاغات'
-  const title = `${scope}${/اليوم/.test(question) ? ' اليوم' : ''}`
+  const title = `${scope}${asksUrgent && !scope.includes('عاجلة') ? ' العاجلة' : ''}${/اليوم/.test(question) ? ' اليوم' : ''}`
   if (isTechnicianRole(desk.role)) return replyPick(desk, actor, rows, title)
   return say(listLines(rows, actor.id, desk.names, title), { kind: 'stats' })
 }
 
 function employeeDesk(desk: Desk, actor: Actor, question: string): DeskReply | null {
+  if (/تعطل القسم|عطل جماعي/.test(question)) {
+    return say('تعطل القسم يتابعه رئيس القسم. من حسابك تظهر بلاغاتك أنت فقط.', { kind: 'stats' })
+  }
   if (/بانتظار|ينتظر رد/.test(question)) {
     const rows = desk.rows.filter((row) => row.user_id === actor.id && row.status === 'بانتظار الموظف')
     return say(rows.length ? `الفني ينتظر ردك في:\n${rows.map((row) => lineOf(row, actor.id, desk.names)).join('\n')}` : 'ما فيه بلاغ بانتظار ردك.', { kind: 'stats' })
@@ -483,6 +649,10 @@ function employeeDesk(desk: Desk, actor: Actor, question: string): DeskReply | n
 }
 
 function technicianDesk(desk: Desk, actor: Actor, question: string, ticketId = ''): DeskReply | null {
+  if (/تعطل القسم|عطل جماعي/.test(question)) {
+    const rows = desk.rows.filter((row) => row.is_outage && isActive(row.status))
+    return say(listLines(rows, actor.id, desk.names, 'تعطل الأقسام المفتوح'), { kind: 'stats' })
+  }
   if (/وردية|أسلم الوردية|اسلم الوردية|تسليم الوردية/.test(question)) {
     const mine = desk.rows.filter((row) => row.assigned_technician === actor.id && isActive(row.status))
     const urgent = desk.rows.filter((row) => row.status === 'مفتوحة' && !row.assigned_technician && (row.priority === 'عاجل' || row.is_outage))
@@ -708,7 +878,13 @@ function headDesk(desk: Desk, actor: Actor, question: string): DeskReply | null 
 }
 
 function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null {
+  if (/تعطل القسم|عطل جماعي/.test(question) && !/أضف|اضف/.test(question)) {
+    if (!canSeeTickets(actor, desk.role)) return say('أرقام البلاغات تحتاج صلاحية البلاغات أو النظرة العامة أو التحليلات.', { kind: 'stats' })
+    const rows = desk.rows.filter((row) => row.is_outage && isActive(row.status))
+    return say(listLines(rows, actor.id, desk.names, 'تعطل الأقسام المفتوح'), { kind: 'stats' })
+  }
   if (/تقرير|ملخص المناقشة|ملخص للمناقشة/.test(question)) {
+    if (!canSeeTickets(actor, desk.role)) return say('أرقام البلاغات تحتاج صلاحية البلاغات أو النظرة العامة أو التحليلات.', { kind: 'stats' })
     const today = desk.rows.filter((row) => row.created_at >= desk.start).length
     const week = desk.rows.filter((row) => row.created_at >= desk.weekStart).length
     const open = desk.rows.filter((row) => isActive(row.status)).length
@@ -718,12 +894,14 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
     return say(`اليوم دخل ${today} بلاغ. هذا الأسبوع ${week}. المفتوح الآن ${open}، منها ${urgent} عاجل، و${waiting} لم يُسند. المنجز أو المغلق هذا الأسبوع ${done}.`, { kind: 'stats' })
   }
   if (/أكثر الأعطال|اكثر الاعطال|أنواع العطل|انواع العطل/.test(question)) {
+    if (!canSeeTickets(actor, desk.role)) return say('أرقام البلاغات تحتاج صلاحية البلاغات أو النظرة العامة أو التحليلات.', { kind: 'stats' })
     const counts = new Map<string, number>()
     desk.rows.filter((row) => row.created_at >= desk.weekStart).forEach((row) => counts.set(row.fault_type || 'أخرى', (counts.get(row.fault_type || 'أخرى') || 0) + 1))
     const lines = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([fault, count]) => `${fault}: ${count}`)
     return say(lines.length ? `أعطال هذا الأسبوع:\n${lines.join('\n')}` : 'ما فيه بلاغات هذا الأسبوع.', { kind: 'stats' })
   }
   if (/حمل الفني|اداء الفني|أداء الفني|مين فاضي|من فاضي/.test(question)) {
+    if (!canSeeTickets(actor, desk.role)) return say('أرقام البلاغات تحتاج صلاحية البلاغات أو النظرة العامة أو التحليلات.', { kind: 'stats' })
     const techs = desk.people.filter((person) => isTechnicianRole(person.role)).map((person) => ({
       name: person.full_name || 'فني',
       open: desk.rows.filter((row) => row.assigned_technician === person.id && isActive(row.status)).length,
@@ -733,15 +911,22 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
     return say(lines.length ? lines.join('\n') : 'ما فيه فنيون.', { kind: 'stats' })
   }
   if (/حسابات ناقصة|بدون قسم|بدون رقم|لم تُعتمد|لم تعتمد|بانتظار الاعتماد/.test(question)) {
+    if (!canManage(actor, 'users') && !canManage(actor, 'approvals')) return say('بيانات الحسابات من صلاحية المستخدمين أو الاعتمادات.')
     const pending = desk.people.filter((person) => person.is_approved === false)
     const incomplete = desk.people.filter((person) => !person.department || !person.employee_number || person.must_change_password)
     const lines = [
       pending.length ? `بانتظار الاعتماد:\n${pending.slice(0, 6).map((person) => person.full_name).join('، ')}` : 'لا حسابات بانتظار الاعتماد.',
       incomplete.length ? `بيانات ناقصة أو كلمة مرور لم تُغيّر:\n${incomplete.slice(0, 6).map((person) => person.full_name).join('، ')}` : ''
     ].filter(Boolean)
-    return say(lines.join('\n'), { kind: 'stats', choices: pending.slice(0, 6).map((person) => ({ id: person.id, label: `اعتمد ${person.full_name}` })), draft: pending.length ? { intent: 'approve', step: 'pick' } : null })
+    const canApprove = canManage(actor, 'approvals')
+    return say(lines.join('\n'), {
+      kind: 'stats',
+      choices: canApprove ? pending.slice(0, 6).map((person) => ({ id: person.id, label: `اعتمد ${person.full_name}` })) : [],
+      draft: canApprove && pending.length ? { intent: 'approve', step: 'pick' } : null
+    })
   }
   if (/وريني حساب|بيانات حساب|حساب /.test(question) && !/مقف|عطل|مشكل/.test(question)) {
+    if (!canManage(actor, 'users')) return say('بيانات الحسابات من صلاحية المستخدمين.')
     const name = question.replace(/.*حساب\s*/, '').trim()
     const found = findPeople(desk.people, name)
     if (!found.length) return say('ما لقيت حساباً بهذا الاسم.', { kind: 'stats' })
@@ -749,11 +934,13 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
     return say(lines.join('\n'), { kind: 'stats' })
   }
   if (/الإعدادات|الاعدادات|سياسة كلمة|المساعد شغ|المساعد متوقف/.test(question)) {
+    if (!canManage(actor, 'settings')) return say('إعدادات النظام من صلاحية الإعدادات.')
     const ai = desk.settings.ai_enabled ? 'المساعد شغّال' : 'المساعد متوقف'
     const mail = desk.settings.email_alerts ? 'تنبيهات البوابة مفعّلة' : 'تنبيهات البوابة متوقفة'
     const password = desk.settings.strict_auth ? 'كلمة المرور صارمة: 8 أحرف وفيها حرف ورقم.' : 'كلمة المرور 6 أحرف على الأقل، و123456 ممنوعة.'
     const change = desk.settings.force_password_change ? 'الحساب الجديد يغيّر كلمة المرور عند أول دخول.' : 'لا يُفرض تغيير كلمة المرور.'
-    return say(`${ai}. ${mail}. ${password} ${change}\nالأقسام: ${desk.departments.join('، ')}`, { kind: 'stats' })
+    const departments = canSeeDepartments(actor) ? `\nالأقسام الحالية ${desk.departments.length}: ${desk.departments.join('، ')}` : ''
+    return say(`${ai}. ${mail}. ${password} ${change}${departments}`, { kind: 'stats' })
   }
   if (/أوقف المساعد|اوقف المساعد|شغّل المساعد|شغل المساعد/.test(question)) {
     if (!canManage(actor, 'settings')) return say('تشغيل المساعد من صلاحية الإعدادات.')
@@ -769,6 +956,7 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
     return say(`سيُضاف القسم «${name}» إلى الإعدادات.`, { confirm: { action: 'add_department', label: 'أضف القسم', payload: { name } } })
   }
   if (/اسم قسم/.test(question)) {
+    if (!canManage(actor, 'settings')) return say('تعديل الأقسام من صلاحية الإعدادات.')
     const match = question.match(/قسم\s+(.+?)\s+(?:إلى|الى)\s+(.+)/)
     if (!match) return say('اكتب: غيّر اسم قسم المالية إلى الحسابات.', { kind: 'action' })
     return say(`سيصبح قسم «${match[1].trim()}» باسم «${match[2].trim()}» في الإعدادات وحسابات الموظفين.`, {
@@ -1182,7 +1370,43 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply | 
   return say('ابدأ إنشاء الحساب من جديد.', { draft: null })
 }
 
+async function storedTicket(desk: Desk, ticketId: string): Promise<Row | null> {
+  const cached = desk.rows.find((row) => row.id === ticketId)
+  if (cached) return cached
+  const { data } = await serviceClient().from('tickets').select(COLUMNS).eq('id', ticketId).maybeSingle()
+  return (data as Row | null) || null
+}
+
+async function assertTicketAccess(actor: Actor, desk: Desk, ticketId: string, mode: 'own' | 'claim' | 'assign'): Promise<DeskReply | null> {
+  if (!ticketId) return say('حدد البلاغ.')
+  if (mode === 'assign') {
+    if (!(actor.role === 'admin' && canManage(actor, 'tickets'))) return say('إسناد البلاغ لمدير النظام الذي يملك صلاحية البلاغات.')
+    return null
+  }
+  if (mode === 'claim') {
+    if (!isTechnicianRole(desk.role)) return say('الاستلام للفني.')
+  } else if (desk.role === 'admin') {
+    if (!canManage(actor, 'tickets')) return say('هذا الإجراء يحتاج صلاحية البلاغات.')
+    return null
+  } else if (!isTechnicianRole(desk.role)) {
+    return say('هذا الإجراء غير متاح لهذا الدور.')
+  }
+  const hit = await storedTicket(desk, ticketId)
+  if (!hit) return say('البلاغ غير موجود.')
+  if (mode === 'claim') {
+    if (hit.assigned_technician || hit.status !== 'مفتوحة') return say('هذا البلاغ لا يُستلم الآن.')
+    return null
+  }
+  if (hit.assigned_technician !== actor.id) return say('هذا الإجراء للبلاغ المسند إليك. الفني لا يغيّر بلاغ فني آخر.')
+  return null
+}
+
 async function execute(actor: Actor, request: Request, desk: Desk, action: string, payload: Record<string, string>): Promise<DeskReply> {
+  if (action === 'claim' || action === 'status' || action === 'reply' || action === 'priority' || action === 'fault' || action === 'assign' || action === 'close' || action === 'note') {
+    const mode = action === 'assign' ? 'assign' : action === 'claim' ? 'claim' : 'own'
+    const blocked = await assertTicketAccess(actor, desk, payload.ticketId, mode)
+    if (blocked) return blocked
+  }
   const db = serviceClient()
   if (action === 'toggle_ai') {
     if (!canManage(actor, 'settings')) return say('ليست لديك صلاحية الإعدادات.')
@@ -1383,8 +1607,7 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
   return say('هذا الإجراء غير معروف.')
 }
 
-export async function interpret(actor: Actor, request: Request, input: DeskInput): Promise<DeskOutcome> {
-  const desk = await loadDesk(actor)
+export async function evaluateDesk(desk: Desk, actor: Actor, request: Request, input: DeskInput): Promise<DeskOutcome> {
   const question = input.question.trim()
   const typingSecret = (input.draft?.intent === 'create_user' || input.draft?.intent === 'reset_password') && input.draft.step === 'password'
   if (!typingSecret && leaksSecret(question)) {
@@ -1402,6 +1625,11 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
   if (priority) return { type: 'reply', reply: say(priority, { kind: 'stats' }) }
   const meaning = /معنى|يعني|شرح الحالة/.test(question) ? statusHelp(question) : ''
   if (meaning) return { type: 'reply', reply: say(meaning, { kind: 'stats' }) }
+  if (asksDepartmentCatalog(question)) return { type: 'reply', reply: departmentCatalogReply(desk, actor) }
+  if (asksEmployeeCount(question)) return { type: 'reply', reply: accountCatalogReply(desk, actor, question) }
+  const follow = ticketFollowup(question, input.history || [])
+  if (follow === 'none') return { type: 'reply', reply: say('السؤال السابق ليس عن بلاغات، فما فيه عاجل منها.', { kind: 'stats' }) }
+  if (follow) return { type: 'reply', reply: answerTickets(desk, actor, follow) }
   const role = desk.role
   const specific = role === 'admin'
     ? adminDesk(desk, actor, question)
@@ -1411,6 +1639,8 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
         ? technicianDesk(desk, actor, question, input.ticketId || '')
         : employeeDesk(desk, actor, question)
   if (specific) return { type: 'reply', reply: specific }
+  const denied = deniedAdminAction(desk, question)
+  if (denied) return { type: 'reply', reply: denied }
   const number = mentionedTicket(question)
   if (number && asksTicketDetail(question)) {
     const found = await fetchTicket(desk, actor, number)
@@ -1419,12 +1649,22 @@ export async function interpret(actor: Actor, request: Request, input: DeskInput
     return { type: 'reply', reply: say(detailOf(found, actor.id, desk.names), { kind: 'stats' }) }
   }
   if (toolAction(question)) {
-    const facts = answerTickets(desk, actor, role === 'department_head' || role === 'user' ? 'بلاغاتي المفتوحة' : 'وش عندنا تذاكر اليوم والمفتوحة').answer
-    return { type: 'help', preface: helpPreface(desk, actor, question), facts }
+    return { type: 'help', preface: helpPreface(desk, actor, question), facts: sessionBrief(desk, actor, question) }
   }
   if (ticketQuestion(question) || /عطل جماعي|متأخر/.test(question)) {
     return { type: 'reply', reply: answerTickets(desk, actor, question) }
   }
-  const facts = answerTickets(desk, actor, role === 'department_head' || role === 'user' ? 'بلاغاتي المفتوحة' : 'وش عندنا تذاكر اليوم والمفتوحة').answer
-  return { type: 'help', preface: helpPreface(desk, actor, question), facts }
+  return { type: 'help', preface: helpPreface(desk, actor, question), facts: sessionBrief(desk, actor, question) }
+}
+
+export async function interpret(actor: Actor, request: Request, input: DeskInput): Promise<DeskOutcome> {
+  const desk = await loadDesk(actor)
+  const question = input.question.trim()
+  const typingSecret = (input.draft?.intent === 'create_user' || input.draft?.intent === 'reset_password') && input.draft.step === 'password'
+  if (!typingSecret && !input.confirm?.action && !input.draft?.intent && asksEmployeeCount(question) && desk.role === 'admin' && canManage(actor, 'users')) {
+    const counts = await loadAccountCounts(desk, question)
+    if (!counts) return { type: 'reply', reply: say('تعذر عد الحسابات.', { kind: 'stats' }) }
+    desk.accountCounts = counts
+  }
+  return evaluateDesk(desk, actor, request, input)
 }

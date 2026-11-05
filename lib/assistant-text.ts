@@ -88,10 +88,26 @@ export function answerFromTools(outputs: Array<Record<string, unknown>>) {
       lines.push(data.error)
       continue
     }
-    if (typeof data.count === 'number') {
+    if (data.entity === 'departments' && typeof data.count === 'number') {
+      const names = Array.isArray(data.departments) ? data.departments.filter((item): item is string => typeof item === 'string' && item.length > 0) : []
+      if (data.scope === 'own') lines.push(`صلاحيتك على قسمك فقط: ${names[0] || 'غير محدد'}.`)
+      else lines.push(names.length ? `الأقسام الحالية ${data.count}: ${names.join('، ')}.` : 'لا توجد أقسام مسجّلة في الإعدادات.')
+      continue
+    }
+    if (data.entity === 'accounts' && typeof data.count === 'number') {
       const department = textOf(data.department)
+      const role = textOf(data.role)
       const scope = department && department !== 'all' ? ` في ${department}` : ''
-      lines.push(`عدد الحسابات${scope}: ${data.count}.`)
+      const label = role === 'user'
+        ? 'عدد حسابات الموظفين'
+        : role === 'technician'
+          ? 'عدد حسابات الفنيين'
+          : role === 'department_head'
+            ? 'عدد حسابات رؤساء الأقسام'
+            : role === 'admin'
+              ? 'عدد حسابات مديري النظام'
+              : 'عدد الحسابات'
+      lines.push(`${label}${scope}: ${data.count}.`)
       continue
     }
     if (Array.isArray(data.employees)) {
