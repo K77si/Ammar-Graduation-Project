@@ -8,7 +8,6 @@ import { TicketHistory, TicketTools } from '@/components/ticket-tools'
 import { StatusBadge } from '@/components/status-badge'
 import { TicketConversation } from '@/components/ticket-conversation'
 import { AiAssistant } from '@/components/ai-assistant'
-import { AccountLog } from '@/components/account-log'
 import { TicketSearch } from '@/components/ticket-search'
 import { departmentLabel, statusLabel, formatTicketNo, formatTicketWhen, greetingStyle, normalizeDigits, ticketNoStyle, ticketNumberMatches } from '@/lib/display'
 import { useGreeting } from '@/lib/use-greeting'
@@ -597,12 +596,9 @@ export default function EmployeePage() {
           <button type="button" className={portalView === 'البلاغات' ? 'active' : ''} onClick={() => setPortalView('البلاغات')}><Ticket size={16} /> البلاغات</button>
         </div>
         {portalView === 'اسأل سند' ? (
-          <>
-            <div className="ask-sanad">
-              <AiAssistant supabase={supabase} mode="employee" role={isHead ? 'department_head' : 'user'} onOpenTicket={(question, fault) => openNewTicket(false, question, fault)} onTicketsChanged={() => fetchEmployeeData(userId)} />
-            </div>
-            {userId && <AccountLog supabase={supabase} userId={userId} />}
-          </>
+          <div className="ask-sanad">
+            <AiAssistant supabase={supabase} mode="employee" role={isHead ? 'department_head' : 'user'} onOpenTicket={(question, fault) => openNewTicket(false, question, fault)} onTicketsChanged={() => fetchEmployeeData(userId)} />
+          </div>
         ) : (
         <>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
@@ -674,7 +670,6 @@ export default function EmployeePage() {
           textLabel="بحث في البلاغات"
           textPlaceholder={isHead ? 'ابحث في بلاغات القسم: المشكلة، الموظف، الحالة، الفني...' : 'ابحث في بلاغاتك: المشكلة، الحالة، الفني...'}
         />
-        {userId && <AccountLog supabase={supabase} userId={userId} />}
 
         {/* الجدول */}
         <div id="employee-tickets" style={{ background: 'var(--surface)', border: `1px solid ${'var(--border)'}`, borderRadius: '16px', overflowX: 'auto' }}>

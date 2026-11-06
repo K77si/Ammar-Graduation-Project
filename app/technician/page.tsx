@@ -9,7 +9,6 @@ import { TicketFiles } from '@/components/ticket-files'
 import { TicketHistory, TicketTools } from '@/components/ticket-tools'
 import { StatusBadge, StatusLegend } from '@/components/status-badge'
 import { AiAssistant } from '@/components/ai-assistant'
-import { AccountLog } from '@/components/account-log'
 import { TicketSearch } from '@/components/ticket-search'
 import { TicketConversation } from '@/components/ticket-conversation'
 import { statusLabel, asRating, departmentLabel, formatTicketNo, formatTicketWhen, greetingStyle, normalizeDigits, ticketNoStyle, ticketNumberMatches } from '@/lib/display'
@@ -529,12 +528,9 @@ export default function TechnicianPage() {
           </div>
 
           {activeTab === 'اسأل سند' && (
-            <>
-              <div className="ask-sanad">
-                <AiAssistant supabase={supabase} mode="technician" onTicketsChanged={() => { void fetchQueue(true) }} />
-              </div>
-              {userId && <AccountLog supabase={supabase} userId={userId} />}
-            </>
+            <div className="ask-sanad">
+              <AiAssistant supabase={supabase} mode="technician" onTicketsChanged={() => { void fetchQueue(true) }} />
+            </div>
           )}
 
           {activeTab === 'نظرة عامة' && (

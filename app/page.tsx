@@ -862,12 +862,9 @@ export default function Page() {
 
           {/* ----- (نظرة عامة) ----- */}
           {activeTab === 'اسأل سند' && (
-            <>
-              <div className="ask-sanad">
-                <AiAssistant supabase={supabase} mode="admin" permissions={myPermissions} onTicketsChanged={() => { void fetchAllData(true) }} />
-              </div>
-              {adminId && <AccountLog supabase={supabase} userId={adminId} />}
-            </>
+            <div className="ask-sanad">
+              <AiAssistant supabase={supabase} mode="admin" permissions={myPermissions} onTicketsChanged={() => { void fetchAllData(true) }} />
+            </div>
           )}
 
           {activeTab === 'نظرة عامة' && allowed('overview') && (
@@ -1438,6 +1435,7 @@ export default function Page() {
               {editRole === 'admin' && editOriginalRole !== 'admin' && <small style={{ color: '#94a3b8', fontSize: '11px', display: 'block' }}>يتطلب تحقق عمار ثم اختيار الصلاحيات.</small>}
               <div className="modal-foot"><button type="submit" disabled={editing} style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '8px', padding: '12px', fontWeight: 700, cursor: 'pointer' }}>{editRole === 'admin' && editOriginalRole !== 'admin' ? 'متابعة للتحقق' : (editing ? 'جاري الحفظ...' : 'تحديث البيانات')}</button></div>
             </form>
+            {editUserId && <div style={{ marginTop: '1rem' }}><AccountLog supabase={supabase} userId={editUserId} /></div>}
             </>
             )}
           </div>
