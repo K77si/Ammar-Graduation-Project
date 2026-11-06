@@ -1,4 +1,4 @@
-import { DEPARTMENTS, TECH_DEPARTMENT, departmentLabel, normalizeDigits, passwordError, storedDepartment } from '@/lib/display'
+import { TECH_DEPARTMENT, departmentLabel, normalizeDigits, passwordError, savedDepartments, storedDepartment } from '@/lib/display'
 import { ADMIN_PERMISSIONS, normalizeAdminPermissions } from '@/lib/admin-access'
 import { writeAudit } from '@/lib/audit'
 import { canManage, getActor, isOwner, serviceClient, verifyOwner } from '@/lib/server-auth'
@@ -62,9 +62,7 @@ export async function POST(request: Request) {
   const { data: settings } = await admin.from('system_settings').select('strict_auth, force_password_change, departments').eq('id', 'main_settings').maybeSingle()
   const weakPassword = passwordError(password, settings?.strict_auth === true)
   if (weakPassword) return Response.json({ error: weakPassword }, { status: 400 })
-  const knownDepartments = Array.isArray(settings?.departments) && settings.departments.length > 0
-    ? (settings.departments as string[]).map((item) => departmentLabel(item))
-    : DEPARTMENTS
+  const knownDepartments = savedDepartments(settings?.departments)
   if (!knownDepartments.includes(departmentLabel(department)) && department !== TECH_DEPARTMENT) {
     return Response.json({ error: 'القسم غير موجود في إعدادات الأقسام.' }, { status: 400 })
   }

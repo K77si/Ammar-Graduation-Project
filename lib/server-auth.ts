@@ -12,6 +12,7 @@ export type Actor = {
   id: string
   role: string
   permissions: string[] | null
+  owner: boolean
 }
 
 export function serviceClient() {
@@ -30,16 +31,21 @@ export async function getActor(request: Request): Promise<Actor | null> {
   })
   const { data } = await client.auth.getUser(token)
   if (!data.user) return null
-  const { data: profile } = await client.from('profiles').select('role, admin_permissions').eq('id', data.user.id).maybeSingle()
+  const { data: profile } = await client.from('profiles').select('role, admin_permissions, is_owner').eq('id', data.user.id).maybeSingle()
+  const owner = profile?.is_owner === true
+  const stored = normalizeAdminPermissions(profile?.admin_permissions)
   return {
     id: data.user.id,
     role: (profile?.role as string) || 'user',
-    permissions: normalizeAdminPermissions(profile?.admin_permissions)
+    owner,
+    permissions: owner ? null : (stored ?? [])
   }
 }
 
 export function canManage(actor: Actor, key: string) {
-  return actor.role === 'admin' && hasAdminPermission(actor.permissions, key)
+  if (actor.role !== 'admin') return false
+  if (actor.owner) return true
+  return hasAdminPermission(actor.permissions, key)
 }
 
 const DEPARTMENT_KEYS = ['settings', 'overview', 'analytics', 'users'] as const

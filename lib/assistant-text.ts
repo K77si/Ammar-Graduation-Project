@@ -112,6 +112,10 @@ export function answerFromTools(outputs: Array<Record<string, unknown>>) {
     }
     if (data.entity === 'accounts' && typeof data.count === 'number') {
       const department = textOf(data.department)
+      if (data.scope === 'own-department') {
+        lines.push(`حسابات قسم ${department || 'قسمك'}: ${data.count}.`)
+        continue
+      }
       const role = textOf(data.role)
       const scope = department && department !== 'all' ? ` في ${department}` : ''
       const label = role === 'user'

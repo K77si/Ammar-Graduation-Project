@@ -91,6 +91,7 @@ const MENUS: Record<Persona, Chip[]> = {
   department_head: [
     { group: 'قسمك', label: 'تعطل القسم', question: 'تعطل القسم' },
     { group: 'قسمك', label: 'بلاغات الموظفين', question: 'بلاغات موظفين قسمي' },
+    { group: 'قسمك', label: 'موظفو قسمي', question: 'كم موظف في قسمي' },
     { group: 'المتابعة', label: 'مين المتابع', question: 'من المتابع' },
     { group: 'المتابعة', label: 'مقارنة الأسبوع', question: 'بلاغات الأسبوع' },
     { group: 'تقرير القسم', label: 'جملة للمدير', question: 'جملة للمدير' },
@@ -110,9 +111,9 @@ const GROUP_HINT: Record<string, string> = {
   'صف العطل': 'يشرح الخطوات. إذا ما انحلت، ترفع بلاغاً.',
   'تابع بلاغاتك': 'أرقام بلاغاتك، واللي الفني ينتظر ردك فيها.',
   'بعد الإنجاز': 'قيّم البلاغ، أو أعد فتحه إذا رجعت المشكلة.',
-  'قسمك': 'تعطل قسمك وبلاغات موظفيك. ما يشوف أقسام غيرك.',
+  'قسمك': 'تعطل قسمك وبلاغات موظفيك وأسماؤهم. ما يشوف أقسام غيرك.',
   'المتابعة': 'مين يشتغل على بلاغات قسمك، وهذا الأسبوع مقارنة بالسابق.',
-  'تقرير القسم': 'جملة للمدير، والتقييمات الضعيفة داخل قسمك.'
+  'تقرير القسم': 'ترسل جملة إلى تنبيهات مدير النظام، وتعرض التقييمات الضعيفة داخل قسمك.'
 }
 
 const INTRO: Record<Persona, string> = {
@@ -172,6 +173,7 @@ export function AiAssistant({
   const [lastQuestion, setLastQuestion] = useState('')
   const restored = useRef(false)
   const askedRef = useRef(false)
+  const pendingSecret = useRef('')
   const chatEpoch = useRef(0)
   const transcriptRef = useRef<HTMLDivElement>(null)
 
@@ -294,9 +296,12 @@ export function AiAssistant({
   }, [supabase])
 
   const send = async (payload: { question?: string; choice?: string; confirm?: Confirm | null } = {}) => {
-    const text = (payload.question ?? question).trim()
+    const typed = (payload.question ?? question).trim()
+    const typingSecret = draft?.step === 'password' && !payload.choice && !payload.confirm
+    const secret = payload.confirm ? pendingSecret.current : (typingSecret ? typed : '')
+    const text = typingSecret ? 'كلمة المرور' : typed
     if (loading) return
-    if (!payload.choice && !payload.confirm && text.length < 2 && !image && !draft) return
+    if (!payload.choice && !payload.confirm && (typingSecret ? secret.length < 1 : text.length < 2) && !image && !draft) return
     askedRef.current = true
     setLoading(true)
     setError('')
@@ -323,7 +328,8 @@ export function AiAssistant({
         confirm: payload.confirm || null,
         ticketId,
         history: payload.choice || payload.confirm ? [] : history,
-        image: image ? { mediaType: image.mediaType, data: image.data } : null
+        image: image ? { mediaType: image.mediaType, data: image.data } : null,
+        secret: secret || undefined
       })
     })
     let access = await sessionToken()
@@ -342,10 +348,13 @@ export function AiAssistant({
     const result = await response.json().catch(() => ({ error: 'تعذّر الوصول إلى المساعد الذكي.' }))
     setLoading(false)
     if (!response.ok) { setError(result.error || 'تعذّر الوصول إلى المساعد الذكي.'); return }
-    const visibleQuestion = draft?.step === 'password' ? 'كلمة المرور' : text
+    if (payload.confirm || payload.choice === 'cancel') pendingSecret.current = ''
+    else if (typingSecret && (result.confirm?.action === 'reset_password' || result.confirm?.action === 'create_user')) pendingSecret.current = secret
+    else if (typingSecret) pendingSecret.current = ''
+    const visibleQuestion = typingSecret ? 'كلمة المرور' : text
     if (reply?.answer && lastQuestion) setThread((current) => [...current, { q: lastQuestion, a: reply.answer }].slice(-8))
     if (visibleQuestion) setLastQuestion(visibleQuestion)
-    if (draft?.step !== 'password') setAsked(text)
+    if (!typingSecret) setAsked(text)
     setQuestion('')
     setPickQuery('')
     setImage(null)
@@ -418,8 +427,7 @@ export function AiAssistant({
       </section>
     )
   }
-  if (status.configured && !status.enabled && mode !== 'admin') return null
-  const ready = status.enabled || mode === 'admin'
+  const ready = true
   const helpReply = reply?.kind === 'help'
 
   const persona: Persona = role || (mode === 'admin' ? 'admin' : mode === 'technician' ? 'technician' : 'user')
@@ -550,7 +558,8 @@ export function AiAssistant({
     <>
       {image && <p className="ai-gemini-meta">مرفقة: {image.name}</p>}
       {status.configured === false && <p className="ai-gemini-meta">اقتراح الحل يحتاج مفتاح المساعد على الخادم. أسئلة التذاكر تعمل الآن.</p>}
-      {mode === 'admin' && status.configured && !status.enabled && <p className="ai-gemini-meta">المساعد متوقف من الإعدادات.</p>}
+      {!status.enabled && <p className="ai-gemini-meta">اقتراح الحلول والشرح متوقفان. أسئلة الأرقام والإجراءات المعروفة تبقى تعمل.</p>}
+      {secretStep && <p className="ai-gemini-meta">حقل كلمة المرور فقط. لا يُحفظ في المحادثة ولا يذهب مع نص السؤال.</p>}
       {error && <p className="ai-box-error">{error}</p>}
     </>
   )

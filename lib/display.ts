@@ -27,6 +27,15 @@ export const TECH_DEPARTMENT = 'الدعم التقني'
 
 export const DEPARTMENTS = [TECH_DEPARTMENT, 'الموارد البشرية', 'المالية', 'الإدارة', 'العمليات', 'التسويق']
 
+export function savedDepartments(value: unknown) {
+  if (!Array.isArray(value)) return []
+  const names = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => departmentLabel(item))
+    .filter((item) => item !== 'غير محدد')
+  return [...new Set(names)]
+}
+
 const TECH_ALIASES = new Set([
   TECH_DEPARTMENT,
   'الدعم التقني (it)',

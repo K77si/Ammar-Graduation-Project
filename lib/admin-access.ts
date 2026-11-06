@@ -24,6 +24,11 @@ export function hasAdminPermission(permissions: string[] | null | undefined, key
   return permissions.includes(key)
 }
 
+export function grantedPermissions(value: unknown, owner = false): string[] | null {
+  if (owner) return null
+  return normalizeAdminPermissions(value) ?? []
+}
+
 export function permissionSummary(permissions?: string[] | null) {
   if (permissions == null) return 'كل الصلاحيات'
   const labels = ADMIN_PERMISSIONS.filter((item) => permissions.includes(item.key)).map((item) => item.label)

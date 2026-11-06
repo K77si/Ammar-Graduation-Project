@@ -16,8 +16,8 @@ import { TicketSearch } from '@/components/ticket-search'
 import { OriginBadge, OriginFilter, originOf, stripOrigin } from '@/components/origin-badge'
 import { KnowledgeEditor } from '@/components/knowledge-editor'
 import { PerformancePanel } from '@/components/performance-panel'
-import { ADMIN_PERMISSIONS, hasAdminPermission, normalizeAdminPermissions, permissionSummary } from '@/lib/admin-access'
-import { DEPARTMENTS, statusLabel, TECH_DEPARTMENT, asRating, departmentLabel, formatTicketNo, formatTicketWhen, greetingStyle, isTechnicianRole, normalizeDigits, passwordError, roleLabel, storedDepartment, ticketNoStyle, ticketNumberMatches } from '@/lib/display'
+import { ADMIN_PERMISSIONS, grantedPermissions, hasAdminPermission, permissionSummary } from '@/lib/admin-access'
+import { statusLabel, TECH_DEPARTMENT, asRating, departmentLabel, formatTicketNo, formatTicketWhen, greetingStyle, isTechnicianRole, normalizeDigits, passwordError, roleLabel, savedDepartments, storedDepartment, ticketNoStyle, ticketNumberMatches } from '@/lib/display'
 import { useGreeting } from '@/lib/use-greeting'
 import { loadTicketThread, readTicketMeta, sendTicketReply, subscribeTicketChanges, type ThreadMessage } from '@/lib/ticket-thread'
 import { loadTicketEvents } from '@/lib/ticket-events'
@@ -40,6 +40,7 @@ interface UserProfile {
   temp_password?: string
   must_change_password?: boolean
   admin_permissions?: string[] | null
+  is_owner?: boolean
   availability?: string | null
   created_at?: string
 }
@@ -181,7 +182,7 @@ export default function Page() {
 
   // الإعدادات
   const [settingTab, setSettingTab] = useState('عام')
-  const [departmentList, setDepartmentList] = useState<string[]>([...DEPARTMENTS])
+  const [departmentList, setDepartmentList] = useState<string[]>([])
   const departmentsSaving = useRef(false)
   const [newDepartmentName, setNewDepartmentName] = useState('')
   const [ticketEvents, setTicketEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; source?: string | null; created_at: string }>>([])
@@ -294,14 +295,11 @@ export default function Page() {
     }
 
     void closeStale(supabase)
-    const loadedUsers = await supabase.from('profiles').select('id, full_name, email, username, department, role, is_approved, employee_number, must_change_password, admin_permissions, availability, created_at').order('full_name', { ascending: true })
+    const loadedUsers = await supabase.from('profiles').select('id, full_name, email, username, department, role, is_approved, employee_number, must_change_password, admin_permissions, availability, is_owner, created_at').order('full_name', { ascending: true })
     const usersData = loadedUsers.error
-      ? (await supabase.from('profiles').select('id, full_name, email, username, department, role, is_approved, employee_number, must_change_password, created_at').order('full_name', { ascending: true })).data
+      ? (await supabase.from('profiles').select('id, full_name, email, username, department, role, is_approved, employee_number, must_change_password, admin_permissions, is_owner, created_at').order('full_name', { ascending: true })).data
       : loadedUsers.data
-    if (usersData) {
-      setUsers(usersData as UserProfile[])
-      if (!newDepartment) setNewDepartment(DEPARTMENTS[1])
-    }
+    if (usersData) setUsers(usersData as UserProfile[])
 
     const { data: ticketsData } = await supabase.from('tickets').select('*')
     if (ticketsData) {
@@ -328,7 +326,11 @@ export default function Page() {
         strict_auth: settingsData.strict_auth ?? false,
         force_password_change: settingsData.force_password_change !== false
       })
-      if (!departmentsSaving.current && Array.isArray(settingsData.departments) && settingsData.departments.length > 0) setDepartmentList(settingsData.departments)
+      if (!departmentsSaving.current) {
+        const saved = savedDepartments(settingsData.departments)
+        setDepartmentList(saved)
+        setNewDepartment((current) => current || saved.find((item) => item !== TECH_DEPARTMENT) || saved[0] || '')
+      }
     }
     if (!silent) {
       setLoading(false)
@@ -345,7 +347,7 @@ export default function Page() {
       }
       setCurrentEmail(session.user.email || '')
       setAdminId(session.user.id)
-      const { data: profile } = await supabase.from('profiles').select('role, full_name, employee_number, admin_permissions, must_change_password').eq('id', session.user.id).single()
+      const { data: profile } = await supabase.from('profiles').select('role, full_name, employee_number, admin_permissions, must_change_password, is_owner').eq('id', session.user.id).single()
       if (profile?.must_change_password) {
         window.location.href = '/login'
         return
@@ -353,7 +355,7 @@ export default function Page() {
       if (profile?.full_name) setAdminName(profile.full_name)
       if (profile?.employee_number) setAdminNumber(profile.employee_number)
       if (profile) {
-        const permissions = normalizeAdminPermissions(profile.admin_permissions)
+        const permissions = grantedPermissions(profile.admin_permissions, profile.is_owner === true)
         setMyPermissions(permissions)
         const tabs: Array<[string, string]> = [
           ['نظرة عامة', 'overview'],
@@ -455,6 +457,9 @@ export default function Page() {
         items.push({ id: `approve-${person.id}`, message: `حساب ${person.full_name || 'مستخدم'} بانتظار الاعتماد.` })
       })
     }
+    auditLogs.filter((row) => row.action === 'تقرير قسم').slice(0, 5).forEach((row) => {
+      items.push({ id: `report-${row.id}`, message: `${row.actor_name}: ${row.detail || row.target_name || 'تقرير قسم'}` })
+    })
     if (hasAdminPermission(myPermissions, 'tickets')) {
       tickets.forEach((ticket) => {
         const no = formatTicketNo(ticket.ticket_number)
@@ -478,7 +483,7 @@ export default function Page() {
     const ordered = [...items.filter((item) => unread.has(item.id)), ...items.filter((item) => !unread.has(item.id))]
     setAdminNotices(ordered.slice(0, 8))
     setAdminUnread([...unread].some((id) => !adminAcked.current.has(id)))
-  }, [accessReady, adminId, users, tickets, sysSettings.email_alerts, myPermissions])
+  }, [accessReady, adminId, users, tickets, auditLogs, sysSettings.email_alerts, myPermissions])
   const deptStats = useMemo(() => {
     const counts: Record<string, number> = {}
     tickets.forEach(t => {
@@ -555,7 +560,7 @@ export default function Page() {
   const openEditModal = (person: UserProfile) => {
     const nextRole = person.role === 'manager' ? 'technician' : person.role
     setEditUserId(person.id); setEditFullName(person.full_name); setEditEmail(person.email); setEditEmployeeNumber(person.employee_number || '');
-    setEditPassword(''); setEditDepartment(isTechnicianRole(nextRole) ? TECH_DEPARTMENT : (departmentLabel(person.department) === 'غير محدد' ? DEPARTMENTS[0] : departmentLabel(person.department))); setEditRole(nextRole); setEditOriginalRole(nextRole); setEditError('');
+    setEditPassword(''); setEditDepartment(isTechnicianRole(nextRole) ? TECH_DEPARTMENT : (departmentLabel(person.department) === 'غير محدد' ? (departmentList.find((item) => item !== TECH_DEPARTMENT) || departmentList[0] || '') : departmentLabel(person.department))); setEditRole(nextRole); setEditOriginalRole(nextRole); setEditError('');
     resetGrant()
     setShowEditModal(true); setActiveDropdown(null)
   }
@@ -967,7 +972,7 @@ export default function Page() {
                   )}
 
                   {settingTab === 'المساعد' && (
-                    <ToggleOption label="تشغيل المساعد الذكي" desc="يقترح حلولاً للموظفين والفنيين قبل فتح البلاغ. المحادثة نفسها من «اسأل سند»." checked={sysSettings.ai_enabled} onChange={() => setSysSettings({...sysSettings, ai_enabled: !sysSettings.ai_enabled})} dark={dark} />
+                    <ToggleOption label="تشغيل المساعد الذكي" desc="يقترح حلولاً ويشرح قبل فتح البلاغ. إيقافه لا يوقف أسئلة الأرقام والإجراءات المعروفة." checked={sysSettings.ai_enabled} onChange={() => setSysSettings({...sysSettings, ai_enabled: !sysSettings.ai_enabled})} dark={dark} />
                   )}
 
                   {settingTab === 'الحلول' && (
@@ -1056,7 +1061,7 @@ export default function Page() {
                               </div>
                             </td>
                             <td>{departmentLabel(person.department)}</td>
-                            <td>{roleName}{person.role === 'admin' && <small style={{ display: 'block', color: '#64748b', fontSize: '11px', lineHeight: 1.5 }}>{permissionSummary(person.admin_permissions)}</small>}</td>
+                            <td>{roleName}{person.role === 'admin' && <small style={{ display: 'block', color: '#64748b', fontSize: '11px', lineHeight: 1.5 }}>{permissionSummary(person.is_owner ? null : (person.admin_permissions ?? []))}</small>}</td>
                             <td><span className={`status ${isAct ? 'active' : 'pending'}`}><i />{isAct ? 'معتمد' : 'بانتظار الاعتماد'}</span></td>
                             <td><button aria-label="تبديل" className={`switch ${isAct ? 'on' : ''}`} onClick={() => toggleApproval(person.id, isAct)} disabled={!allowed('approvals')} style={{ opacity: allowed('approvals') ? 1 : 0.4 }}><span /></button></td>
                             <td style={{ position: 'relative' }}>

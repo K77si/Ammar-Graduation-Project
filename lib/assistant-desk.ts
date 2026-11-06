@@ -8,7 +8,6 @@ import { FAULT_TYPES, isActive } from '@/lib/workflow'
 import { similarity, normalizeArabic } from '@/lib/similar'
 import { readTicketMeta } from '@/lib/ticket-thread'
 import {
-  DEPARTMENTS,
   TECH_DEPARTMENT,
   departmentLabel,
   formatTicketNo,
@@ -17,6 +16,7 @@ import {
   passwordError,
   roleLabel,
   statusLabel,
+  savedDepartments,
   storedDepartment
 } from '@/lib/display'
 
@@ -38,6 +38,7 @@ export type DeskInput = {
   confirm?: { action: string; payload: Record<string, string> } | null
   ticketId?: string
   history?: { q: string; a: string }[]
+  secret?: string
 }
 export type DeskOutcome =
   | { type: 'reply'; reply: DeskReply }
@@ -267,9 +268,7 @@ async function loadDesk(actor: Actor): Promise<Desk> {
   const role = (profile?.role as string) || actor.role
   const department = (profile?.department as string) || ''
   const { data: settings } = await db.from('system_settings').select('ai_enabled, email_alerts, strict_auth, force_password_change, departments').eq('id', 'main_settings').maybeSingle()
-  const departments = Array.isArray(settings?.departments) && settings.departments.length
-    ? (settings.departments as string[]).map((item) => departmentLabel(item))
-    : [...DEPARTMENTS]
+  const departments = savedDepartments(settings?.departments)
   let memberIds: string[] = []
   if (role === 'department_head' && department) {
     const { data: members } = await db.from('profiles').select('id').eq('department', department)
@@ -281,13 +280,21 @@ async function loadDesk(actor: Actor): Promise<Desk> {
     if (role === 'department_head') return query.in('user_id', memberIds.length ? memberIds : [actor.id]).eq('is_private', false)
     return query.eq('user_id', actor.id)
   }
+  const directory = role === 'admin' && (canManage(actor, 'users') || canManage(actor, 'approvals') || canManage(actor, 'delete_users') || canManage(actor, 'reset_password'))
+  const peopleQuery = role === 'user'
+    ? db.from('profiles').select('id, full_name, role').eq('id', actor.id).limit(1)
+    : role === 'department_head'
+      ? db.from('profiles').select('id, full_name, department, role, is_approved').eq('department', department).limit(200)
+      : directory
+        ? db.from('profiles').select('id, full_name, email, username, department, role, is_approved, employee_number, must_change_password, availability, is_owner').order('full_name').limit(500)
+        : db.from('profiles').select('id, full_name, role, department, availability, is_owner').in('role', ['technician', 'manager']).limit(80)
   const [recentRes, openRes, outageRes, peopleRes, templateRes] = await Promise.all([
     scoped().gte('created_at', prevStart).order('created_at', { ascending: false }).limit(250),
     scoped().in('status', ['مفتوحة', 'قيد المعالجة', 'بانتظار الموظف']).order('created_at', { ascending: false }).limit(200),
     role === 'department_head'
       ? db.from('tickets').select(COLUMNS).eq('is_outage', true).eq('affected_department', department).eq('is_private', false).order('created_at', { ascending: false }).limit(40)
       : Promise.resolve({ data: [] }),
-    db.from('profiles').select('id, full_name, email, username, department, role, is_approved, employee_number, must_change_password, availability, is_owner').order('full_name').limit(500),
+    peopleQuery,
     db.from('reply_templates').select('body').order('sort_order', { ascending: true }).limit(12)
   ])
   const merged = new Map<string, Row>()
@@ -295,6 +302,12 @@ async function loadDesk(actor: Actor): Promise<Desk> {
     if (row.id) merged.set(row.id, row)
   }
   const people = (peopleRes.data || []) as Person[]
+  const known = new Set(people.map((person) => person.id))
+  const missing = [...new Set([...merged.values()].flatMap((row) => [row.user_id, row.assigned_technician]).filter((id): id is string => typeof id === 'string' && !known.has(id)))]
+  if (missing.length) {
+    const { data: extra } = await db.from('profiles').select('id, full_name, department, role').in('id', missing.slice(0, 200))
+    people.push(...((extra || []) as Person[]))
+  }
   const names = new Map(people.map((person) => [person.id, person.full_name || 'مستخدم']))
   return {
     role,
@@ -517,6 +530,15 @@ function peopleAccountCount(desk: Desk, slice: keyof Omit<AccountCounts, 'depart
 }
 
 function accountCatalogReply(desk: Desk, actor: Actor, question: string): DeskReply {
+  if (desk.role === 'department_head') {
+    const name = departmentLabel(desk.department)
+    if (!name || name === 'غير محدد') return say('لا يوجد قسم مرتبط بحسابك.', { kind: 'stats' })
+    const asked = mentionedDepartment(desk, question)
+    if (asked && asked !== name) return say(`ترى حسابات قسمك فقط: ${name}.`, { kind: 'stats' })
+    const people = desk.people.filter((person) => departmentLabel(person.department) === name)
+    const lines = people.map((person) => `${person.full_name || 'مستخدم'} · ${roleLabel(person.role)}`)
+    return say(lines.length ? `حسابات قسم ${name}: ${lines.length}.\n${lines.join('\n')}` : `لا توجد حسابات مسجّلة في قسم ${name}.`, { kind: 'stats' })
+  }
   if (desk.role !== 'admin' || !canManage(actor, 'users')) {
     return say('عدد الحسابات من صلاحية المستخدمين، وهو غير عدد الأقسام وغير عدد البلاغات.', { kind: 'stats' })
   }
@@ -872,7 +894,10 @@ function headDesk(desk: Desk, actor: Actor, question: string): DeskReply | null 
   if (/للمدير|جملة للمدير/.test(question)) {
     const open = mine.filter((row) => isActive(row.status))
     const outage = open.filter((row) => row.is_outage).length
-    return say(`قسم ${departmentLabel(desk.department)}: ${open.length} بلاغ مفتوح، منها ${outage} تعطل قسم.`, { kind: 'stats' })
+    const sentence = `قسم ${departmentLabel(desk.department)}: ${open.length} بلاغ مفتوح، منها ${outage} تعطل قسم.`
+    return say(`ستُرسل هذه الجملة إلى تنبيهات مدير النظام:\n${sentence}`, {
+      confirm: { action: 'notify_admin', label: 'أرسل للمدير', payload: { sentence } }
+    })
   }
   return null
 }
@@ -945,7 +970,7 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
   if (/أوقف المساعد|اوقف المساعد|شغّل المساعد|شغل المساعد/.test(question)) {
     if (!canManage(actor, 'settings')) return say('تشغيل المساعد من صلاحية الإعدادات.')
     const enable = /شغ/.test(question)
-    return say(enable ? 'سيعمل المساعد لكل الأدوار بعد التأكيد.' : 'سيتوقف اقتراح الحلول وأوامر المساعد بعد التأكيد. أسئلة الإعدادات ترجع من صفحة الإعدادات.', {
+    return say(enable ? 'سيعمل المساعد لكل الأدوار بعد التأكيد.' : 'سيتوقف اقتراح الحلول والشرح بعد التأكيد. أسئلة الأرقام والإجراءات المعروفة تبقى تعمل.', {
       confirm: { action: 'toggle_ai', label: enable ? 'شغّل المساعد' : 'أوقف المساعد', payload: { enabled: enable ? 'true' : 'false' } }
     })
   }
@@ -1046,7 +1071,7 @@ function adminDesk(desk: Desk, actor: Actor, question: string): DeskReply | null
 
 function passwordPrompt(person: Person): DeskReply {
   if (isOwner(person)) return say('لا يمكن تغيير كلمة مرور المالك من هنا.')
-  return say(`اكتب كلمة المرور الجديدة لـ ${person.full_name} وحدها في الرسالة التالية. لن أعيدها.`, {
+  return say(`اكتب كلمة المرور الجديدة لـ ${person.full_name} في حقل كلمة المرور. لن تُحفظ في المحادثة ولن أعيدها.`, {
     choices: [CANCEL],
     draft: { intent: 'reset_password', step: 'password', userId: person.id }
   })
@@ -1079,12 +1104,14 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply | 
     return passwordPrompt(person)
   }
   if (draft.intent === 'reset_password' && draft.step === 'password') {
-    const weak = passwordError(text, desk.settings.strict_auth)
+    const secret = (input.secret || '').trim()
+    if (!secret) return say('اكتب كلمة المرور في حقل كلمة المرور. لا تُكتب داخل رسالة المحادثة.', { choices: [CANCEL], draft })
+    const weak = passwordError(secret, desk.settings.strict_auth)
     if (weak) return say(weak, { choices: [CANCEL], draft })
     const person = desk.people.find((item) => item.id === draft.userId)
     return say(`تأكيد تعيين كلمة مرور جديدة لـ ${person?.full_name || 'الحساب'}. لن تُعرض الكلمة.`, {
       choices: [CANCEL],
-      confirm: { action: 'reset_password', label: 'عيّن كلمة المرور', payload: { userId: draft.userId, password: text } },
+      confirm: { action: 'reset_password', label: 'عيّن كلمة المرور', payload: { userId: draft.userId } },
       draft: null
     })
   }
@@ -1302,6 +1329,7 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply | 
       draft.step = 'email'
       return say(`النوع فني الدعم والقسم ${TECH_DEPARTMENT}. اكتب البريد الإلكتروني.`, { choices: [CANCEL], draft })
     }
+    if (!desk.departments.length) return say('لا توجد أقسام مسجّلة في الإعدادات. أضف قسماً أولاً.', { draft: null })
     draft.step = 'department'
     return say('اختر القسم.', { choices: [...desk.departments.map((item) => ({ id: item, label: item })), CANCEL], draft })
   }
@@ -1345,10 +1373,11 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply | 
     return say('اكتب كلمة المرور. لن أعيدها في الرد.', { choices: [CANCEL], draft })
   }
   if (draft.step === 'password') {
-    const weak = passwordError(text, desk.settings.strict_auth)
+    const secret = (input.secret || '').trim()
+    if (!secret) return say('اكتب كلمة المرور في حقل كلمة المرور. لا تُكتب داخل رسالة المحادثة.', { choices: [CANCEL], draft })
+    const weak = passwordError(secret, desk.settings.strict_auth)
     if (weak) return say(weak, { choices: [CANCEL], draft })
-    draft.password = text
-    draft.step = 'confirm'
+    delete draft.password
     return say(`راجع الحساب ثم أكد:\nالاسم: ${draft.fullName}\nالدور: ${roleLabel(draft.role)}\nالقسم: ${draft.department}\nالبريد: ${draft.email}\nالمستخدم: ${draft.username}\nرقم الموظف: ${draft.employeeNumber}\nكلمة المرور محفوظة لهذه الخطوة ولن تُعرض.`, {
       choices: [CANCEL],
       confirm: {
@@ -1360,8 +1389,7 @@ function continueDraft(desk: Desk, actor: Actor, input: DeskInput): DeskReply | 
           department: draft.department,
           email: draft.email,
           username: draft.username,
-          employeeNumber: draft.employeeNumber,
-          password: draft.password
+          employeeNumber: draft.employeeNumber
         }
       },
       draft: null
@@ -1414,7 +1442,14 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     const saved = await db.from('system_settings').update({ ai_enabled: enabled }).eq('id', 'main_settings')
     if (saved.error) return say('تعذّر تغيير حالة المساعد.')
     await writeAudit(actor.id, enabled ? 'تشغيل المساعد' : 'إيقاف المساعد', 'المساعد الذكي', '', { source: 'سند' })
-    return say(enabled ? 'تم تشغيل المساعد.' : 'تم إيقاف المساعد.')
+    return say(enabled ? 'تم تشغيل المساعد.' : 'تم إيقاف اقتراح الحلول والشرح. أسئلة الأرقام والإجراءات المعروفة تبقى تعمل.')
+  }
+  if (action === 'notify_admin') {
+    if (desk.role !== 'department_head') return say('إرسال تقرير القسم لرئيس القسم.')
+    const sentence = (payload.sentence || '').trim().slice(0, 400)
+    if (sentence.length < 4) return say('لا توجد جملة لإرسالها.')
+    await writeAudit(actor.id, 'تقرير قسم', departmentLabel(desk.department), sentence, { source: 'سند' })
+    return say(`أُرسلت إلى تنبيهات مدير النظام:\n${sentence}`)
   }
   if (action === 'add_department') {
     if (!canManage(actor, 'settings')) return say('ليست لديك صلاحية الإعدادات.')
@@ -1481,7 +1516,8 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     if ('error' in checked) return say(checked.error)
     const employeeNumber = (payload.employeeNumber || '').replace(/\D/g, '')
     if (!/^\d{9}$/.test(employeeNumber)) return say('رقم الموظف يجب أن يكون 9 أرقام.')
-    const weak = passwordError(payload.password || '', desk.settings.strict_auth)
+    if (!payload.password) return say('اكتب كلمة المرور في الحقل المخصص ثم أكد.')
+    const weak = passwordError(payload.password, desk.settings.strict_auth)
     if (weak) return say(weak)
     const email = (payload.email || '').trim().toLowerCase()
     const username = (payload.username || '').trim().toLowerCase()
@@ -1521,7 +1557,8 @@ async function execute(actor: Actor, request: Request, desk: Desk, action: strin
     if (!canManage(actor, 'reset_password')) return say('ليست لديك صلاحية تغيير كلمة المرور.')
     const person = desk.people.find((item) => item.id === payload.userId)
     if (!person || isOwner(person)) return say('لا يمكن تغيير كلمة مرور هذا الحساب من هنا.')
-    const weak = passwordError(payload.password || '', desk.settings.strict_auth)
+    if (!payload.password) return say('اكتب كلمة المرور في الحقل المخصص ثم أكد.')
+    const weak = passwordError(payload.password, desk.settings.strict_auth)
     if (weak) return say(weak)
     const updated = await db.auth.admin.updateUserById(person.id, { password: payload.password })
     if (updated.error) return say('تعذر تغيير كلمة المرور.')
@@ -1615,7 +1652,9 @@ export async function evaluateDesk(desk: Desk, actor: Actor, request: Request, i
   }
   if (input.choice === 'cancel') return { type: 'reply', reply: say('تم إلغاء الأمر.', { draft: null }) }
   if (input.confirm?.action) {
-    return { type: 'reply', reply: await execute(actor, request, desk, input.confirm.action, input.confirm.payload || {}) }
+    const payload = { ...(input.confirm.payload || {}) }
+    if ((input.confirm.action === 'reset_password' || input.confirm.action === 'create_user') && input.secret) payload.password = input.secret
+    return { type: 'reply', reply: await execute(actor, request, desk, input.confirm.action, payload) }
   }
   if (input.draft?.intent) {
     const continued = continueDraft(desk, actor, input)

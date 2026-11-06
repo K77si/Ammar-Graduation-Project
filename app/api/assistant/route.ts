@@ -121,6 +121,7 @@ export async function POST(request: Request) {
     ticketId?: string
     image?: { mediaType?: string; data?: string } | null
     history?: { q?: string; a?: string }[]
+    secret?: string
   } | null
   const question = (body?.question || '').trim()
   const image = body?.image?.data && /^image\/(jpeg|png|gif|webp)$/.test(body.image.mediaType || '') && body.image.data.length < 1_800_000
@@ -128,8 +129,6 @@ export async function POST(request: Request) {
     : null
   const continuing = Boolean(body?.confirm?.action || body?.draft?.intent || body?.choice)
   const enabled = await assistantEnabled()
-  const turningOn = /شغّ?ل المساعد/.test(question) || body?.confirm?.action === 'toggle_ai'
-  if (!enabled && !turningOn) return Response.json({ error: 'المساعد الذكي متوقف من إعدادات النظام.' }, { status: 403 })
   if (!continuing && question.length < 2 && !image) return Response.json({ error: 'اكتب سؤالك.' }, { status: 400 })
   if (question.length > 2000) return Response.json({ error: 'اختصر السؤال إلى 2000 حرف أو أقل.' }, { status: 400 })
   if (!allowRequest(actor.id)) return Response.json({ error: 'وصلت إلى الحد المسموح من الأسئلة. حاول بعد عشر دقائق.' }, { status: 429 })
@@ -140,9 +139,11 @@ export async function POST(request: Request) {
     draft: body?.draft,
     confirm: body?.confirm,
     ticketId: body?.ticketId || '',
-    history: readHistory(body?.history)
+    history: readHistory(body?.history),
+    secret: typeof body?.secret === 'string' ? body.secret : ''
   })
   if (outcome.type === 'reply') return pack(outcome.reply)
+  if (!enabled) return Response.json({ error: 'اقتراح الحلول والشرح متوقفان من الإعدادات. أسئلة الأرقام والإجراءات المعروفة تبقى تعمل.' }, { status: 403 })
 
   const paths = await modelPaths(request)
   if (!paths.canGateway && !paths.canDirect) return Response.json({ error: 'المساعد الذكي غير مفعّل بعد. يحتاج مدير النظام إضافة مفتاح Anthropic على الخادم.' }, { status: 503 })
@@ -188,7 +189,7 @@ export async function POST(request: Request) {
     'إذا لم تغطِ جملة جاهزة السؤال، فهذه مهمتك: افهم القصد، استدع الأداة التي تطابق النوع والصلاحية، ثم أجب بجملة عربية. لا تقل ما أعرف، ولا تطلب إعادة الصياغة، ولا تقل إن الأداة الوحيدة تعد الحسابات إذا كان السؤال عن الأقسام أو البلاغات.',
     'هيكل البيانات، ولا تخلط الأنواع:',
     '- الأقسام الحالية: قائمة إعدادات النظام. سؤال «كم قسم» يعني عدد هذه القائمة. الأداة get_departments. ليست عدد الحسابات ولا عدد البلاغات.',
-    '- الحسابات: جدول الملفات. العدد بأداة get_employees_count ولمدير يملك صلاحية المستخدمين فقط. لا تستخدمها لعد الأقسام.',
+    '- الحسابات: جدول الملفات. مدير النظام الذي يملك صلاحية المستخدمين يسأل العدد بأداة get_employees_count. رئيس القسم يرى حسابات قسمه فقط بهذه الأداة، ولا يرى أقساماً أخرى. لا تستخدمها لعد الأقسام.',
     '- البلاغات: الموظف بلاغاته، رئيس القسم بلاغات قسمه غير الخاصة، الفني كل البلاغات، والمدير إذا ملك صلاحية البلاغات أو النظرة العامة أو التحليلات. الأداة get_tickets_summary.',
     'صلاحيات مدير النظام منفصلة: النظرة العامة، البلاغات، المستخدمون، الاعتمادات، التحليلات، الإعدادات، حذف الحسابات، إعادة كلمة المرور. إذا رفضت الأداة فانقل نص الرفض كما هو.',
     'أجب بالعربية الواضحة دائماً. لا تكتب إنجليزية، ولا تذكر أسماء الأدوات، ولا تلصق JSON في الجواب، ولا تشرح طريقة بحثك.',

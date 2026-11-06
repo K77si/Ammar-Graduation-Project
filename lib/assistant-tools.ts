@@ -4,13 +4,13 @@ import { jsonSchema, tool, type JSONSchema7 } from 'ai'
 import { writeAudit } from '@/lib/audit'
 import { markTicketOpenedBySanad, tagRecentTicketEvents } from '@/lib/sanad-log'
 import {
-  DEPARTMENTS,
   TECH_DEPARTMENT,
   departmentLabel,
   isTechnicianRole,
   normalizeDigits,
   passwordError,
   roleLabel,
+  savedDepartments,
   storedDepartment
 } from '@/lib/display'
 import { canManage, canSeeDepartments, isOwner, serviceClient, type Actor } from '@/lib/server-auth'
@@ -44,7 +44,7 @@ const TOOLS: ToolSpec[] = [
   },
   {
     name: 'get_employees_count',
-    description: 'يعد حسابات جدول profiles فقط، وليس الأقسام. الأقسام أداة get_departments. متاح لمدير النظام الذي يملك صلاحية المستخدمين. الموظف والفني ورئيس القسم يُرفضون. لا تخترع الرقم، ولا ترسل هوية المتصل.',
+    description: 'يعد حسابات جدول profiles فقط، وليس الأقسام. الأقسام أداة get_departments. مدير النظام يحتاج صلاحية المستخدمين. رئيس القسم يرى عدد حسابات قسمه فقط، بلا أقسام أخرى. الموظف والفني يُرفضون. لا تخترع الرقم، ولا ترسل هوية المتصل.',
     schema: objectSchema({
       role: { type: 'string', enum: ['user', 'technician', 'department_head', 'admin'], description: 'اختياري. technician يشمل manager. اتركه فارغاً لعد كل الحسابات.' },
       department: { type: 'string', description: 'اسم القسم إن طُلب قسم محدد.' },
@@ -191,6 +191,16 @@ function roleList(value: string): string[] | null {
 }
 
 async function getEmployeesCount(actor: Actor, raw: unknown): Promise<ToolOutput> {
+  if (actor.role === 'department_head') {
+    const { data: profile } = await serviceClient().from('profiles').select('department').eq('id', actor.id).maybeSingle()
+    const department = departmentLabel(typeof profile?.department === 'string' ? profile.department : '')
+    if (!department || department === 'غير محدد') return { ok: false, error: 'لا يوجد قسم مرتبط بحسابك.' }
+    const requested = cleanDepartment(textField(asRecord(raw).department))
+    if (requested && requested !== department) return { ok: false, error: `ترى حسابات قسمك فقط: ${department}.` }
+    const { count, error } = await serviceClient().from('profiles').select('id', { count: 'exact', head: true }).eq('department', profile?.department || '')
+    if (error) return { ok: false, error: 'تعذر عد حسابات القسم.' }
+    return { ok: true, entity: 'accounts', scope: 'own-department', count: count ?? 0, department, role: 'department' }
+  }
   if (actor.role !== 'admin') return { ok: false, error: 'عدد الحسابات لمدير النظام الذي يملك صلاحية المستخدمين.' }
   if (!canManage(actor, 'users')) return { ok: false, error: 'عدد الحسابات من صلاحية المستخدمين، وهو غير عدد الأقسام وعدد البلاغات.' }
   const input = asRecord(raw)
@@ -222,9 +232,7 @@ async function getDepartments(actor: Actor, department: string): Promise<ToolOut
   }
   const { data, error } = await serviceClient().from('system_settings').select('departments').eq('id', 'main_settings').maybeSingle()
   if (error) return { ok: false, error: 'تعذر قراءة الأقسام.' }
-  const departments = Array.isArray(data?.departments) && data.departments.length
-    ? (data.departments as string[]).map((item) => departmentLabel(item))
-    : [...DEPARTMENTS]
+  const departments = savedDepartments(data?.departments)
   return { ok: true, entity: 'departments', scope: 'settings', count: departments.length, departments }
 }
 
@@ -290,9 +298,7 @@ async function createEmployee(actor: Actor, raw: unknown): Promise<ToolOutput> {
   const { data: settings } = await db.from('system_settings').select('strict_auth, force_password_change, departments').eq('id', 'main_settings').maybeSingle()
   const weak = passwordError(password, settings?.strict_auth === true)
   if (weak) return { ok: false, error: weak }
-  const known = Array.isArray(settings?.departments) && settings.departments.length
-    ? (settings.departments as string[]).map((item) => departmentLabel(item))
-    : DEPARTMENTS
+  const known = savedDepartments(settings?.departments)
   if (!known.includes(departmentLabel(checked.department)) && checked.department !== TECH_DEPARTMENT) {
     return { ok: false, error: 'القسم غير موجود في إعدادات الأقسام.' }
   }
