@@ -13,7 +13,6 @@ import { TicketConversation } from '@/components/ticket-conversation'
 import { AiAssistant } from '@/components/ai-assistant'
 import { AccountLog } from '@/components/account-log'
 import { TicketSearch } from '@/components/ticket-search'
-import { OriginBadge, OriginFilter, originOf, stripOrigin } from '@/components/origin-badge'
 import { KnowledgeEditor } from '@/components/knowledge-editor'
 import { PerformancePanel } from '@/components/performance-panel'
 import { ADMIN_PERMISSIONS, grantedPermissions, hasAdminPermission, permissionSummary } from '@/lib/admin-access'
@@ -131,7 +130,6 @@ export default function Page() {
   const [users, setUsers] = useState<UserProfile[]>([])
   const [tickets, setTickets] = useState<TicketData[]>([])
   const [auditLogs, setAuditLogs] = useState<Array<{ id: string; actor_name: string; action: string; target_name: string | null; detail: string | null; source?: string | null; created_at: string }>>([])
-  const [auditSource, setAuditSource] = useState<'الكل' | 'يدوي' | 'سند'>('الكل')
   const [loading, setLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
@@ -1082,43 +1080,6 @@ export default function Page() {
                 )}
               </div>
             </section>
-            {activeTab === 'المستخدمون' && allowed('users') && (
-              <section className="panel" style={{ marginTop: '16px' }}>
-                <PanelHeader icon={<Shield />} title="سجل العمليات" action="" />
-                <p>إنشاء الحسابات وحذفها وتعديل الصلاحيات. الطريقة تبيّن إن كان الإجراء يدوياً أو عن طريق سند.</p>
-                <OriginFilter value={auditSource} onChange={setAuditSource} />
-                {auditLogs.length === 0 ? (
-                  <div style={{ padding: '12px 0', color: '#94a3b8', fontSize: '13px' }}>لا توجد عمليات مسجلة بعد.</div>
-                ) : (
-                  <div className="table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>العملية</th>
-                          <th>الحساب</th>
-                          <th>بواسطة</th>
-                          <th>التفاصيل</th>
-                          <th>الطريقة</th>
-                          <th>الوقت</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {auditLogs.filter((row) => auditSource === 'الكل' || originOf(row.source, row.detail) === auditSource).map((row) => (
-                          <tr key={row.id}>
-                            <td>{row.action}</td>
-                            <td>{row.target_name || '—'}</td>
-                            <td>{row.actor_name}</td>
-                            <td className="cell-wrap">{stripOrigin(row.detail) || '—'}</td>
-                            <td><OriginBadge source={originOf(row.source, row.detail)} /></td>
-                            <td>{formatTicketWhen(row.created_at)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            )}
           </>)}
 
           {activeTab === 'البلاغات' && allowed('tickets') && (
