@@ -405,6 +405,10 @@ export default function TechnicianPage() {
       count: myAnalyticsTickets.filter((ticket) => ticket.status === status).length
     }))
   }, [myAnalyticsTickets])
+  const finishedInPeriod = myAnalyticsTickets.filter((ticket) => ticket.status === 'منجزة' || ticket.status === 'مغلقة').length
+  const stillMine = tickets.filter((ticket) => ticket.assigned_to === userId && isActive(ticket.status)).length
+  const ratingValues = myAnalyticsTickets.flatMap((ticket) => typeof ticket.rating === 'number' && ticket.rating >= 1 && ticket.rating <= 5 ? [ticket.rating] : [])
+  const averageRating = ratingValues.length ? (ratingValues.reduce((sum, value) => sum + value, 0) / ratingValues.length).toFixed(1) : null
 
   const initials = userName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('') || 'ف'
 
@@ -598,6 +602,11 @@ export default function TechnicianPage() {
                       <button key={value} type="button" aria-pressed={analyticsRange === value} onClick={() => setAnalyticsRange(value)}>{label}</button>
                     ))}
                   </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginTop: '16px' }}>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: '12px', padding: '12px 14px' }}><small style={{ color: 'var(--text-muted)', fontWeight: 700 }}>أنجز في الفترة</small><strong style={{ display: 'block', fontSize: '22px', marginTop: '4px' }}>{finishedInPeriod}</strong></div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: '12px', padding: '12px 14px' }}><small style={{ color: 'var(--text-muted)', fontWeight: 700 }}>ما زال بيدك</small><strong style={{ display: 'block', fontSize: '22px', marginTop: '4px' }}>{stillMine}</strong><small style={{ color: 'var(--text-muted)' }}>العمل الحالي، لا يتبع الفترة</small></div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: '12px', padding: '12px 14px' }}><small style={{ color: 'var(--text-muted)', fontWeight: 700 }}>متوسط التقييم</small><strong style={{ display: 'block', fontSize: '22px', marginTop: '4px' }}>{averageRating === null ? '—' : `${averageRating} / 5`}</strong><small style={{ color: 'var(--text-muted)' }}>{ratingValues.length ? `من ${ratingValues.length} تقييم في الفترة` : 'لا تقييم في الفترة'}</small></div>
                 </div>
                 <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {myAnalyticsTickets.length > 0 ? statusStats.map((stat, index) => (

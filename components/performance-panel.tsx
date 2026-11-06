@@ -198,7 +198,7 @@ export function PerformancePanel({ tickets, events, technicians, showRaterNotes 
         <div className="table-scroll">
           <table>
             <thead>
-              <tr><th>الفني</th><th>أنجز في الفترة</th><th>يعمل عليها الآن</th><th>متوسط وقت الحل</th><th>متوسط التقييم</th></tr>
+              <tr><th>الفني</th><th>أنجز في الفترة</th><th title="العمل الحالي غير المنتهي، ولا يتبع الفترة">يعمل عليها الآن</th><th>متوسط وقت الحل</th><th>متوسط التقييم</th></tr>
             </thead>
             <tbody>
               {stats.perTech.map((tech) => (
@@ -246,7 +246,7 @@ export function PerformancePanel({ tickets, events, technicians, showRaterNotes 
           </table>
         </div>
       )}
-      <small style={{ ...muted, display: 'block', marginTop: '10px' }}>د = دقيقة، س = ساعة، ي = يوم. الأوقات محسوبة من سجل البلاغات الفعلي.</small>
+      <small style={{ ...muted, display: 'block', marginTop: '10px' }}>د = دقيقة، س = ساعة، ي = يوم. الأوقات محسوبة من سجل البلاغات الفعلي. «يعمل عليها الآن» هو العمل الحالي غير المنتهي، ولا يتبع الفترة.</small>
     </section>
   )
 }

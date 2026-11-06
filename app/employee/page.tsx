@@ -696,6 +696,7 @@ export default function EmployeePage() {
                   <th style={{ padding: '12px 16px' }}>نوع العطل</th>
                   <th style={{ padding: '12px 16px' }}>الفني</th>
                   <th style={{ padding: '12px 16px' }}>الحالة</th>
+                  <th style={{ padding: '12px 16px' }}>الأهمية</th>
                   <th style={{ padding: '12px 16px' }}>التاريخ والوقت</th>
                 </tr>
               </thead>
@@ -709,13 +710,13 @@ export default function EmployeePage() {
                       <span style={{ display: 'flex', gap: '6px', marginTop: '4px', fontSize: '11px', fontWeight: 700 }}>
                         {t.status === 'بانتظار الموظف' && t.user_id === userId && <span style={{ color: '#9333ea' }}>مطلوب ردك</span>}
                         {t.is_outage && <span style={{ color: '#b45309' }}>بلاغ قسم</span>}
-                        {t.priority === 'عاجل' && <PriorityBadge priority="عاجل" />}
                         {t.is_private && <span style={{ color: '#64748b' }}>خاص</span>}
                       </span>
                     </td>
                     <td data-label="نوع العطل" style={{ padding: '14px 16px' }}>{t.fault_type || '—'}</td>
                     <td data-label="الفني" style={{ padding: '14px 16px' }}>{t.assigneeName || (t.assigned_to ? (names[t.assigned_to] || 'فني الدعم') : 'بانتظار فني')}</td>
                     <td data-label="الحالة" style={{ padding: '14px 16px' }}><StatusBadge status={t.status} /></td>
+                    <td data-label="الأهمية" style={{ padding: '14px 16px' }}><PriorityBadge priority={t.priority} /></td>
                     <td data-label="التاريخ" style={{ padding: '14px 16px', fontSize: '12px', color: 'var(--text-muted)' }}>{formatTicketWhen(t.created_at)}</td>
                   </tr>
                 ))}

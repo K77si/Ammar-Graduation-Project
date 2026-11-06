@@ -187,7 +187,7 @@ export function TicketHistory({ events }: { events: EventRow[] }) {
   if (logged.length === 0) return null
   return (
     <div style={{ marginTop: '1rem' }}>
-      <Fold title={`سجل البلاغ (${logged.length})`}>
+      <Fold title={`سجل البلاغ (${rows.length})`}>
         <OriginFilter value={origin} onChange={setOrigin} />
         {rows.length === 0 ? <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>لا توجد عمليات بهذا التصنيف.</p> : [...rows].reverse().map((event) => (
           <p key={event.id} style={{ margin: '2px 0', fontSize: '12px', color: '#64748b', lineHeight: 1.8 }}>
