@@ -878,6 +878,11 @@ details.fold[open] > summary::after {
   outline-offset: 1px;
 }
 
+.availability-switch button[aria-pressed='true']:not([data-state]) {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
 .availability-switch button[aria-pressed='true'][data-state='متاح'] {
   background: rgba(16, 185, 129, 0.16);
   color: #059669;

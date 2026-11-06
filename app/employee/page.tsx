@@ -185,6 +185,8 @@ export default function EmployeePage() {
         if (!head) return
         if (!before && ticket.is_outage && (ticket.status === 'مفتوحة' || ticket.status === 'قيد المعالجة')) {
           notifyDesktop(`تعطل في قسمك ${no}`, ticket.title, `${ticket.id}-outage`)
+        } else if (!before && (ticket.status === 'مفتوحة' || ticket.status === 'قيد المعالجة')) {
+          notifyDesktop(`بلاغ في قسمك ${no}`, ticket.title, `${ticket.id}-dept-open`)
         } else if (before && before !== ticket.status) {
           if (ticket.status === 'بانتظار الموظف') notifyDesktop(`البلاغ ${no} بانتظار رد موظف القسم`, ticket.title, `${ticket.id}-dept-wait`)
           if (ticket.status === 'منجزة') notifyDesktop(`أُنجز بلاغ القسم ${no}`, ticket.title, `${ticket.id}-dept-done`)
@@ -233,6 +235,13 @@ export default function EmployeePage() {
           notices.push({
             id: `${ticket.id}-dept-outage`,
             message: `تعطل في قسمك: البلاغ ${no}.`,
+            created_at: ticket.created_at,
+            read: false
+          })
+        } else if (ticket.status === 'مفتوحة' || ticket.status === 'قيد المعالجة') {
+          notices.push({
+            id: `${ticket.id}-dept-open`,
+            message: ticket.status === 'مفتوحة' ? `بلاغ في قسمك ${no} بانتظار فني.` : `بلاغ قسمك ${no} قيد المعالجة.`,
             created_at: ticket.created_at,
             read: false
           })

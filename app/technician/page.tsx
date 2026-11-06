@@ -8,6 +8,7 @@ import { SanadMark } from '@/components/sanad-mark'
 import { TicketFiles } from '@/components/ticket-files'
 import { TicketHistory, TicketTools } from '@/components/ticket-tools'
 import { PriorityBadge, StatusBadge, StatusLegend } from '@/components/status-badge'
+import { ticketsOpenedInRange, type AnalyticsRange } from '@/components/performance-panel'
 import { AiAssistant } from '@/components/ai-assistant'
 import { TicketSearch } from '@/components/ticket-search'
 import { TicketConversation } from '@/components/ticket-conversation'
@@ -67,7 +68,6 @@ export default function TechnicianPage() {
   const [ready, setReady] = useState(false)
   const [activeTab, setActiveTab] = useState('نظرة عامة')
   const [userName, setUserName] = useState('فني الدعم')
-  const [staffRole, setStaffRole] = useState('')
   const [statusPick, setStatusPick] = useState('')
   const [statusFix, setStatusFix] = useState('')
   const greeting = useGreeting()
@@ -107,6 +107,8 @@ export default function TechnicianPage() {
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const [showHelpModal, setShowHelpModal] = useState(false)
   const [availability, setAvailability] = useState<(typeof AVAILABILITY)[number]>('متاح')
+  const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>('30')
+  const [analyticsNow, setAnalyticsNow] = useState<number | null>(null)
   const [templates, setTemplates] = useState<Array<{ id: string; body: string }>>([])
   const [events, setEvents] = useState<Array<{ id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; source?: string | null; created_at: string }>>([])
   const [notes, setNotes] = useState<Array<{ id: string; author_name: string; body: string; created_at: string }>>([])
@@ -279,7 +281,6 @@ export default function TechnicianPage() {
       }
       userNameRef.current = profile.full_name || 'فني الدعم'
       setUserName(userNameRef.current)
-      setStaffRole(profile.role || '')
       setWorkerNumber(profile.employee_number || '')
       setAvailability(profile.availability || 'متاح')
       setReady(true)
@@ -392,12 +393,18 @@ export default function TechnicianPage() {
   const doneCount = tickets.filter((ticket) => ticket.status === 'منجزة' || ticket.status === 'مغلقة').length
   const totalTickets = tickets.length
 
+  useEffect(() => { setAnalyticsNow(Date.now()) }, [])
+  const myAnalyticsTickets = useMemo(() => {
+    const mine = tickets.filter((ticket) => ticket.assigned_to === userId)
+    if (analyticsNow === null || analyticsRange === 'all') return mine
+    return ticketsOpenedInRange(mine, analyticsRange, analyticsNow)
+  }, [tickets, userId, analyticsRange, analyticsNow])
   const statusStats = useMemo(() => {
     return STATUSES.map((status) => ({
       label: status,
-      count: tickets.filter((ticket) => ticket.status === status).length
+      count: myAnalyticsTickets.filter((ticket) => ticket.status === status).length
     }))
-  }, [tickets])
+  }, [myAnalyticsTickets])
 
   const initials = userName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('') || 'ف'
 
@@ -581,12 +588,22 @@ export default function TechnicianPage() {
           {activeTab === 'التحليلات' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <section className="panel">
-                <PanelHeader icon={<BarChart3 />} title="عدد البلاغات حسب الحالة" action="" />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <div>
+                    <PanelHeader icon={<BarChart3 />} title="بلاغاتي حسب الحالة" action="" />
+                    <p style={{ margin: '6px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>{myAnalyticsTickets.length} بلاغ أُسند إليك في الفترة.</p>
+                  </div>
+                  <div className="availability-switch" role="group" aria-label="فترة التحليلات">
+                    {([['7', 'آخر 7 أيام'], ['30', 'آخر 30 يوماً'], ['all', 'كل الفترات']] as const).map(([value, label]) => (
+                      <button key={value} type="button" aria-pressed={analyticsRange === value} onClick={() => setAnalyticsRange(value)}>{label}</button>
+                    ))}
+                  </div>
+                </div>
                 <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {totalTickets > 0 ? statusStats.map((stat, index) => (
-                    <ProgressBar key={stat.label} label={stat.label} count={stat.count} total={totalTickets} color={index % 2 === 0 ? '#8b5cf6' : '#10b981'} />
+                  {myAnalyticsTickets.length > 0 ? statusStats.map((stat, index) => (
+                    <ProgressBar key={stat.label} label={stat.label} count={stat.count} total={myAnalyticsTickets.length} color={index % 2 === 0 ? '#8b5cf6' : '#10b981'} />
                   )) : (
-                    <div style={{ textAlign: 'center', opacity: 0.6, padding: '20px' }}>لا توجد بلاغات بعد.</div>
+                    <div style={{ textAlign: 'center', opacity: 0.6, padding: '20px' }}>لا توجد بلاغات مسندة إليك في هذه الفترة.</div>
                   )}
                 </div>
               </section>
@@ -657,7 +674,7 @@ export default function TechnicianPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
                   <span className="ticket-no" style={ticketNoStyle}>{formatTicketNo(selectedTicket.ticket_number)}</span>
                   <StatusBadge status={selectedTicket.status} />
-                  {staffRole === 'manager' && asRating(selectedTicket.rating) !== null && <span style={{ background: 'var(--field)', padding: '4px 8px', borderRadius: '8px', fontSize: '12px' }}><b>التقييم:</b> {asRating(selectedTicket.rating)}/5</span>}
+                  {asRating(selectedTicket.rating) !== null && <span style={{ background: 'var(--field)', padding: '4px 8px', borderRadius: '8px', fontSize: '12px' }}><b>التقييم:</b> {asRating(selectedTicket.rating)}/5</span>}
                 </div>
                 <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>{selectedTicket.title}</h3>
               </div>
@@ -698,7 +715,7 @@ export default function TechnicianPage() {
               </div>
             </div>
             {actionMsg && <p style={{ fontSize: '13px', margin: '0 0 10px', color: actionMsg.startsWith('تم') ? '#10b981' : '#ef4444' }}>{actionMsg}</p>}
-            <TicketTools ticket={selectedTicket} actor="technician" userId={userId} technicians={[]} events={events} notes={notes} busy={savingStatus} resolutionDraft={resolutionDraft} showRating={staffRole === 'manager'} onRun={runTicket} />
+            <TicketTools ticket={selectedTicket} actor="technician" userId={userId} technicians={[]} events={events} notes={notes} busy={savingStatus} resolutionDraft={resolutionDraft} showRating onRun={runTicket} />
             {similarSolved.length > 0 && (
               <details className="fold" style={{ border: '1px solid rgba(16, 185, 129, 0.35)', borderRadius: '10px', padding: '10px 12px', margin: '0 0 12px' }}>
                 <summary>حلول بلاغات مشابهة ({similarSolved.length})</summary>
