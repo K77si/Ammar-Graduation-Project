@@ -25,7 +25,16 @@ const RANGES = [
   { value: '30', label: 'آخر 30 يوماً' },
   { value: 'all', label: 'كل الفترات' }
 ] as const
-type Range = (typeof RANGES)[number]['value']
+export type AnalyticsRange = (typeof RANGES)[number]['value']
+
+export function ticketsOpenedInRange<T extends { created_at?: string | null }>(tickets: T[], range: AnalyticsRange, now = Date.now()) {
+  if (range === 'all') return tickets
+  const since = now - Number(range) * DAY
+  return tickets.filter((ticket) => {
+    const opened = new Date(ticket.created_at || '').getTime()
+    return !Number.isNaN(opened) && opened >= since
+  })
+}
 
 export function formatDuration(ms: number | null) {
   if (ms === null || !Number.isFinite(ms)) return '—'
@@ -55,8 +64,12 @@ function ratingBadge(rating: number) {
   return { label: 'منخفض', tone: 'low' }
 }
 
-export function PerformancePanel({ tickets, events, technicians, showRaterNotes = false }: { tickets: Ticket[]; events: StatusEvent[]; technicians: Technician[]; showRaterNotes?: boolean }) {
-  const [range, setRange] = useState<Range>('30')
+export function PerformancePanel({ tickets, events, technicians, showRaterNotes = false, onRangeChange }: { tickets: Ticket[]; events: StatusEvent[]; technicians: Technician[]; showRaterNotes?: boolean; onRangeChange?: (range: AnalyticsRange) => void }) {
+  const [range, setRange] = useState<AnalyticsRange>('30')
+  const chooseRange = (next: AnalyticsRange) => {
+    setRange(next)
+    onRangeChange?.(next)
+  }
   const [rangeMenu, setRangeMenu] = useState(false)
   const rangeMenuRef = useRef<HTMLDivElement>(null)
   const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({})
@@ -161,7 +174,7 @@ export function PerformancePanel({ tickets, events, technicians, showRaterNotes 
           {rangeMenu && (
             <div role="listbox" aria-label="الفترة" style={{ position: 'absolute', zIndex: 30, top: 'calc(100% + 4px)', left: 0, minWidth: '100%', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--field-border)', borderRadius: '8px', padding: '4px', boxShadow: 'var(--shadow)' }}>
               {RANGES.map((item) => (
-                <button key={item.value} type="button" role="option" aria-selected={range === item.value} onClick={() => { setRange(item.value); setRangeMenu(false) }} style={{ display: 'block', width: '100%', textAlign: 'right', whiteSpace: 'nowrap', background: range === item.value ? 'var(--accent-light)' : 'transparent', color: 'inherit', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer' }}>
+                <button key={item.value} type="button" role="option" aria-selected={range === item.value} onClick={() => { chooseRange(item.value); setRangeMenu(false) }} style={{ display: 'block', width: '100%', textAlign: 'right', whiteSpace: 'nowrap', background: range === item.value ? 'var(--accent-light)' : 'transparent', color: 'inherit', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer' }}>
                   {item.label}
                 </button>
               ))}

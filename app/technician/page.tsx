@@ -13,7 +13,7 @@ import { TicketSearch } from '@/components/ticket-search'
 import { TicketConversation } from '@/components/ticket-conversation'
 import { statusLabel, asRating, departmentLabel, formatTicketNo, formatTicketWhen, greetingStyle, normalizeDigits, ticketNoStyle, ticketNumberMatches } from '@/lib/display'
 import { useGreeting } from '@/lib/use-greeting'
-import { AVAILABILITY, WORK_STATUSES, closeStale, isActive, isDelayed, sortTickets, ticketAction } from '@/lib/workflow'
+import { AVAILABILITY, WORK_STATUSES, acceptsNewTicket, closeStale, isActive, isDelayed, sortTickets, ticketAction } from '@/lib/workflow'
 import { rememberNotices, unseenNotices } from '@/lib/seen-notices'
 import { rankSimilar } from '@/lib/similar'
 import { DesktopNotifyStatus, notifyDesktop, useNotifyPermission } from '@/lib/desktop-notify'
@@ -428,7 +428,7 @@ export default function TechnicianPage() {
     setAvailability(next)
     const saved = await supabase.from('profiles').update({ availability: next }).eq('id', userId)
     if (saved.error) { setAvailability(previous); setRefreshNotice('تعذّر حفظ حالتك: ' + saved.error.message) }
-    else setRefreshNotice(next === 'خارج الدوام' ? 'حالتك: خارج الدوام.' : `تم تحديث حالتك إلى: ${next}.`)
+    else setRefreshNotice(next === 'متاح' ? 'تم تحديث حالتك إلى: متاح.' : next === 'مشغول' ? 'حالتك مشغول. البلاغات التي بيديك تبقى، والجديدة لا تُسند إليك.' : 'حالتك خارج الدوام. غيّرها قبل استلام بلاغ أو تغيير حالته.')
   }
 
   if (!ready) return <main className="app-shell" style={{ minHeight: '100vh' }} aria-busy="true" />
@@ -664,7 +664,11 @@ export default function TechnicianPage() {
               <button onClick={() => setSelectedTicket(null)} aria-label="إغلاق" title="إغلاق" style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={20} /></button>
             </div>
             {selectedTicket.status === 'مفتوحة' && !selectedTicket.assigned_to && (
-              <button type="button" disabled={savingStatus} onClick={() => void runTicket('claim')} style={{ marginBottom: '12px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 14px', fontWeight: 700, cursor: 'pointer' }}>استلام البلاغ</button>
+              acceptsNewTicket(availability) ? (
+                <button type="button" disabled={savingStatus} onClick={() => void runTicket('claim')} style={{ marginBottom: '12px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 14px', fontWeight: 700, cursor: 'pointer' }}>استلام البلاغ</button>
+              ) : (
+                <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>حالتك {availability}. البلاغات الجديدة لا تُسند إليك حتى تعود متاحاً.</p>
+              )
             )}
             {selectedTicket.assigned_to === userId && selectedTicket.status !== 'مغلقة' && selectedTicket.status !== 'ملغاة' && (
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>

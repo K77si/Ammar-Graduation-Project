@@ -3,7 +3,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { statusLabel } from '@/lib/display'
 import { OriginBadge, OriginFilter, originOf, stripOrigin } from '@/components/origin-badge'
-import { AVAILABILITY, FAULT_TYPES, canReopen, isDelayed, type WorkflowTicket } from '@/lib/workflow'
+import { AVAILABILITY, FAULT_TYPES, acceptsNewTicket, canReopen, isDelayed, type WorkflowTicket } from '@/lib/workflow'
 
 type TechnicianOption = { id: string; name: string; availability?: string | null; openCount: number }
 type EventRow = { id: string; actor_name: string; from_status: string | null; to_status: string | null; note?: string | null; source?: string | null; created_at: string }
@@ -118,7 +118,7 @@ function Tools({ ticket, actor, userId, technicians, events, notes, busy, onRun,
             <select aria-label="الفني" value={assignee} onChange={(event) => setAssignee(event.target.value)} style={field}>
               <option value="">اختر الفني</option>
               {technicians.map((person) => (
-                <option key={person.id} value={person.id} disabled={person.availability === 'خارج الدوام' || person.id === ticket.assigned_to}>
+                <option key={person.id} value={person.id} disabled={!acceptsNewTicket(person.availability) || person.id === ticket.assigned_to}>
                   {person.name} · {person.availability || AVAILABILITY[0]} · البلاغات النشطة: {person.openCount}
                 </option>
               ))}

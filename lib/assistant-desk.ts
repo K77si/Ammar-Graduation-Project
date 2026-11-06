@@ -4,7 +4,7 @@ import { asksDepartmentCatalog, asksEmployeeCount } from '@/lib/assistant-tools'
 import { canManage, canSeeDepartments, isOwner, serviceClient, type Actor } from '@/lib/server-auth'
 import { writeAudit } from '@/lib/audit'
 import { logSanadReply, tagRecentTicketEvents } from '@/lib/sanad-log'
-import { FAULT_TYPES, isActive } from '@/lib/workflow'
+import { FAULT_TYPES, acceptsNewTicket, isActive } from '@/lib/workflow'
 import { similarity, normalizeArabic } from '@/lib/similar'
 import { readTicketMeta } from '@/lib/ticket-thread'
 import {
@@ -235,7 +235,7 @@ function closeOffer(hit: Row): DeskReply {
 }
 
 function suggestAssign(desk: Desk, hit: Row): DeskReply {
-  const techs = desk.people.filter((person) => isTechnicianRole(person.role) && person.availability !== 'خارج الدوام' && person.is_approved !== false)
+  const techs = desk.people.filter((person) => isTechnicianRole(person.role) && acceptsNewTicket(person.availability) && person.is_approved !== false)
     .map((person) => ({ person, open: desk.rows.filter((row) => row.assigned_technician === person.id && isActive(row.status)).length }))
     .sort((a, b) => a.open - b.open)
   if (!techs.length) return say('ما فيه فني متاح الآن.', { kind: 'stats' })

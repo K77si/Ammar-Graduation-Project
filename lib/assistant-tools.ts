@@ -14,7 +14,7 @@ import {
   storedDepartment
 } from '@/lib/display'
 import { canManage, canSeeDepartments, isOwner, serviceClient, type Actor } from '@/lib/server-auth'
-import { FAULT_TYPES } from '@/lib/workflow'
+import { FAULT_TYPES, acceptsNewTicket } from '@/lib/workflow'
 
 const ROLE_DENIED = 'هذا الإجراء غير متاح لهذا الدور.'
 const USERS_DENIED = 'ليست لديك صلاحية المستخدمين.'
@@ -518,6 +518,12 @@ async function ticketIdFrom(request: Request, rawId: string, rawNumber: string) 
   return (data?.id as string) || ''
 }
 
+async function newTicketBlock(id: string) {
+  const { data } = await serviceClient().from('profiles').select('availability').eq('id', id).maybeSingle()
+  if (acceptsNewTicket(data?.availability)) return ''
+  return `لا يُسنَد بلاغ جديد والفني «${data?.availability}». ما بيده من بلاغات يبقى.`
+}
+
 async function resolveTechnician(nameOrId: string): Promise<{ id: string } | { error: string; matches?: unknown[] }> {
   if (/^[0-9a-f-]{36}$/i.test(nameOrId)) return { id: nameOrId }
   const safe = nameOrId.replace(/[%_,]/g, '').slice(0, 60)
@@ -558,6 +564,8 @@ async function updateTicketStatus(actor: Actor, request: Request, raw: unknown):
   const client = userClient(request)
   let claimedSelf = false
   if (assignSelf || (tech && technicianRaw === actor.id)) {
+    const blocked = await newTicketBlock(actor.id)
+    if (blocked) return { ok: false, error: blocked }
     const claimed = await client.rpc('ticket_action', { ticket, action: 'claim', payload: { via: 'sanad' } })
     if (claimed.error && !status) return { ok: false, error: claimed.error.message }
     claimedSelf = !claimed.error
@@ -566,6 +574,8 @@ async function updateTicketStatus(actor: Actor, request: Request, raw: unknown):
     if (!ticketsAdmin(session.actor)) return { ok: false, error: TICKETS_DENIED }
     const resolved = await resolveTechnician(technicianRaw)
     if ('error' in resolved) return { ok: false, error: resolved.error, matches: resolved.matches }
+    const blocked = await newTicketBlock(resolved.id)
+    if (blocked) return { ok: false, error: blocked }
     const assigned = await client.rpc('ticket_action', { ticket, action: 'assign', payload: { technician_id: resolved.id, via: 'sanad' } })
     if (assigned.error) return { ok: false, error: assigned.error.message }
   }

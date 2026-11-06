@@ -14,7 +14,7 @@ import { AiAssistant } from '@/components/ai-assistant'
 import { AccountLog } from '@/components/account-log'
 import { TicketSearch } from '@/components/ticket-search'
 import { KnowledgeEditor } from '@/components/knowledge-editor'
-import { PerformancePanel } from '@/components/performance-panel'
+import { PerformancePanel, ticketsOpenedInRange, type AnalyticsRange } from '@/components/performance-panel'
 import { ADMIN_PERMISSIONS, grantedPermissions, hasAdminPermission, permissionSummary } from '@/lib/admin-access'
 import { statusLabel, TECH_DEPARTMENT, asRating, departmentLabel, formatTicketNo, formatTicketWhen, greetingStyle, isTechnicianRole, normalizeDigits, passwordError, roleLabel, savedDepartments, storedDepartment, ticketNoStyle, ticketNumberMatches } from '@/lib/display'
 import { useGreeting } from '@/lib/use-greeting'
@@ -143,6 +143,7 @@ export default function Page() {
   const [adminUnread, setAdminUnread] = useState(false)
   const adminAcked = useRef(new Set<string>())
   const [statusEvents, setStatusEvents] = useState<Array<{ ticket_id: string; from_status: string | null; to_status: string | null; created_at: string }>>([])
+  const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>('30')
   const [showEditModal, setShowEditModal] = useState(false)
 
   // التعديل
@@ -482,17 +483,19 @@ export default function Page() {
     setAdminNotices(ordered.slice(0, 8))
     setAdminUnread([...unread].some((id) => !adminAcked.current.has(id)))
   }, [accessReady, adminId, users, tickets, auditLogs, sysSettings.email_alerts, myPermissions])
+  const analyticsTickets = useMemo(() => ticketsOpenedInRange(tickets, analyticsRange), [tickets, analyticsRange])
   const deptStats = useMemo(() => {
     const counts: Record<string, number> = {}
-    tickets.forEach(t => {
-      const dept = departmentLabel(t.affected_department)
+    analyticsTickets.forEach((ticket) => {
+      const requester = users.find((person) => person.id === ticket.user_id)
+      const dept = departmentLabel(ticket.affected_department || requester?.department)
       counts[dept] = (counts[dept] || 0) + 1
     })
     return Object.keys(counts).map(key => ({
       label: key,
       count: counts[key]
     })).sort((a, b) => b.count - a.count)
-  }, [tickets, totalTickets])
+  }, [analyticsTickets, users])
 
   const handleAddUser = async (e?: React.FormEvent) => {
     e?.preventDefault()
@@ -901,15 +904,15 @@ export default function Page() {
           {/* ----- (التحليلات) ----- */}
           {activeTab === 'التحليلات' && allowed('analytics') && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <PerformancePanel showRaterNotes tickets={tickets.map((ticket) => ({ ...ticket, rater_name: ticket.user_id ? users.find((person) => person.id === ticket.user_id)?.full_name : '' }))} events={statusEvents} technicians={users.filter((person) => isTechnicianRole(person.role)).map((person) => ({ id: person.id, full_name: person.full_name }))} />
+              <PerformancePanel showRaterNotes onRangeChange={setAnalyticsRange} tickets={tickets.map((ticket) => ({ ...ticket, rater_name: ticket.user_id ? users.find((person) => person.id === ticket.user_id)?.full_name : '' }))} events={statusEvents} technicians={users.filter((person) => isTechnicianRole(person.role)).map((person) => ({ id: person.id, full_name: person.full_name }))} />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px' }}>
                 <section className="panel">
                   <PanelHeader icon={<PieChart />} title="البلاغات حسب قسم صاحبها" action="" />
                   <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {deptStats.length > 0 ? deptStats.map((stat, i) => (
-                      <ProgressBar key={i} label={stat.label} count={stat.count} total={totalTickets} color={i % 2 === 0 ? '#8b5cf6' : '#10b981'} />
+                      <ProgressBar key={i} label={stat.label} count={stat.count} total={analyticsTickets.length} color={i % 2 === 0 ? '#8b5cf6' : '#10b981'} />
                     )) : (
-                      <div style={{ textAlign: 'center', opacity: 0.6, padding: '20px' }}>لا توجد بلاغات بعد.</div>
+                      <div style={{ textAlign: 'center', opacity: 0.6, padding: '20px' }}>لا توجد بلاغات في هذه الفترة.</div>
                     )}
                   </div>
                 </section>
@@ -917,12 +920,12 @@ export default function Page() {
                 <section className="panel">
                   <PanelHeader icon={<BarChart3 />} title="البلاغات حسب الحالة" action="" />
                   <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <ProgressBar label="مفتوحة" count={openTicketsCount} total={totalTickets} color="#f59e0b" />
-                    <ProgressBar label="قيد المعالجة" count={progressTicketsCount} total={totalTickets} color="#3b82f6" />
-                    <ProgressBar label="بانتظار الموظف" count={tickets.filter(t => t.status === 'بانتظار الموظف').length} total={totalTickets} color="#a855f7" />
-                    <ProgressBar label="منجزة" count={tickets.filter(t => t.status === 'منجزة').length} total={totalTickets} color="#10b981" />
-                    <ProgressBar label="مغلقة" count={tickets.filter(t => t.status === 'مغلقة').length} total={totalTickets} color="#64748b" />
-                    <ProgressBar label="ملغاة" count={tickets.filter(t => t.status === 'ملغاة').length} total={totalTickets} color="#94a3b8" />
+                    <ProgressBar label="مفتوحة" count={analyticsTickets.filter(t => t.status === 'مفتوحة').length} total={analyticsTickets.length} color="#f59e0b" />
+                    <ProgressBar label="قيد المعالجة" count={analyticsTickets.filter(t => t.status === 'قيد المعالجة').length} total={analyticsTickets.length} color="#3b82f6" />
+                    <ProgressBar label="بانتظار الموظف" count={analyticsTickets.filter(t => t.status === 'بانتظار الموظف').length} total={analyticsTickets.length} color="#a855f7" />
+                    <ProgressBar label="منجزة" count={analyticsTickets.filter(t => t.status === 'منجزة').length} total={analyticsTickets.length} color="#10b981" />
+                    <ProgressBar label="مغلقة" count={analyticsTickets.filter(t => t.status === 'مغلقة').length} total={analyticsTickets.length} color="#64748b" />
+                    <ProgressBar label="ملغاة" count={analyticsTickets.filter(t => t.status === 'ملغاة').length} total={analyticsTickets.length} color="#94a3b8" />
                   </div>
                 </section>
               </div>

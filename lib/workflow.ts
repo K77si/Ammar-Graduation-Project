@@ -5,6 +5,10 @@ export const FAULT_TYPES = ['طابعة', 'شبكة', 'حساب', 'جهاز', '�
 export const PRIORITIES = ['عادي', 'عاجل'] as const
 export const WORK_STATUSES = ['مفتوحة', 'قيد المعالجة', 'بانتظار الموظف', 'منجزة', 'مغلقة'] as const
 export const AVAILABILITY = ['متاح', 'مشغول', 'خارج الدوام'] as const
+
+export function acceptsNewTicket(availability?: string | null) {
+  return !availability || availability === 'متاح'
+}
 export const ACTIVE_STATUSES = ['مفتوحة', 'قيد المعالجة', 'بانتظار الموظف'] as const
 
 export type WorkflowTicket = {

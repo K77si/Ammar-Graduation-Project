@@ -30,7 +30,7 @@ export function AccountLog({ supabase, userId }: { supabase: SupabaseClient; use
 
   return (
     <details className="account-log">
-      <summary>سجل حسابي ({rows.length})</summary>
+      <summary>سجل الحساب ({rows.length})</summary>
       <p>إنشاء الحساب وتعديله وتغيير كلمة المرور. يظهر إن كان يدوياً أو عن طريق سند.</p>
       <OriginFilter value={filter} onChange={setFilter} />
       {visible.length === 0 ? (
