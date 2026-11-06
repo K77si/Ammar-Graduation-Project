@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useMemo, useState, type CSSProperties } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { formatTicketNo } from '@/lib/display'
 
 type Ticket = {
@@ -20,6 +20,12 @@ type StatusEvent = { ticket_id: string; from_status: string | null; to_status: s
 type Technician = { id: string; full_name: string }
 
 const DAY = 24 * 60 * 60 * 1000
+const RANGES = [
+  { value: '7', label: 'آخر 7 أيام' },
+  { value: '30', label: 'آخر 30 يوماً' },
+  { value: 'all', label: 'كل الفترات' }
+] as const
+type Range = (typeof RANGES)[number]['value']
 
 export function formatDuration(ms: number | null) {
   if (ms === null || !Number.isFinite(ms)) return '—'
@@ -50,9 +56,27 @@ function ratingBadge(rating: number) {
 }
 
 export function PerformancePanel({ tickets, events, technicians, showRaterNotes = false }: { tickets: Ticket[]; events: StatusEvent[]; technicians: Technician[]; showRaterNotes?: boolean }) {
-  const [range, setRange] = useState<'30' | '7' | 'all'>('30')
+  const [range, setRange] = useState<Range>('30')
+  const [rangeMenu, setRangeMenu] = useState(false)
+  const rangeMenuRef = useRef<HTMLDivElement>(null)
   const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({})
   const [now] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!rangeMenu) return
+    const onPointer = (event: PointerEvent) => {
+      if (!rangeMenuRef.current?.contains(event.target as Node)) setRangeMenu(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setRangeMenu(false)
+    }
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [rangeMenu])
 
   const stats = useMemo(() => {
     const since = range === 'all' ? 0 : now - Number(range) * DAY
@@ -130,11 +154,20 @@ export function PerformancePanel({ tickets, events, technicians, showRaterNotes 
           <h2 style={{ fontSize: '16px', margin: 0 }}>مؤشرات الأداء</h2>
           <small style={muted}>{stats.total} بلاغ في الفترة، منها {stats.finished} منجز أو مغلق.</small>
         </div>
-        <select aria-label="الفترة" value={range} onChange={(event) => setRange(event.target.value as '30' | '7' | 'all')} style={{ background: 'var(--field)', color: 'inherit', border: '1px solid var(--field-border)', borderRadius: '8px', padding: '6px 10px' }}>
-          <option value="7">آخر 7 أيام</option>
-          <option value="30">آخر 30 يوماً</option>
-          <option value="all">كل الفترات</option>
-        </select>
+        <div ref={rangeMenuRef} style={{ position: 'relative' }}>
+          <button type="button" aria-label="الفترة" aria-haspopup="listbox" aria-expanded={rangeMenu} onClick={() => setRangeMenu((open) => !open)} style={{ background: 'var(--field)', color: 'inherit', border: '1px solid var(--field-border)', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer' }}>
+            {RANGES.find((item) => item.value === range)?.label}
+          </button>
+          {rangeMenu && (
+            <div role="listbox" aria-label="الفترة" style={{ position: 'absolute', zIndex: 30, top: 'calc(100% + 4px)', left: 0, minWidth: '100%', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--field-border)', borderRadius: '8px', padding: '4px', boxShadow: 'var(--shadow)' }}>
+              {RANGES.map((item) => (
+                <button key={item.value} type="button" role="option" aria-selected={range === item.value} onClick={() => { setRange(item.value); setRangeMenu(false) }} style={{ display: 'block', width: '100%', textAlign: 'right', whiteSpace: 'nowrap', background: range === item.value ? 'var(--accent-light)' : 'transparent', color: 'inherit', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer' }}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(max(200px, calc((100% - 24px) / 3)), 1fr))', gap: '12px' }}>
