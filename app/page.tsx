@@ -8,7 +8,7 @@ import { AdminOwnerGate } from '@/components/admin-owner-gate'
 import { SanadMark } from '@/components/sanad-mark'
 import { TicketFiles } from '@/components/ticket-files'
 import { TicketHistory, TicketTools } from '@/components/ticket-tools'
-import { StatusBadge, StatusLegend } from '@/components/status-badge'
+import { PriorityBadge, StatusBadge, StatusLegend } from '@/components/status-badge'
 import { TicketConversation } from '@/components/ticket-conversation'
 import { AiAssistant } from '@/components/ai-assistant'
 import { AccountLog } from '@/components/account-log'
@@ -1190,7 +1190,6 @@ export default function Page() {
                               <b>{ticket.title}</b>
                               <span style={{ display: 'flex', gap: '6px', marginTop: '4px', fontSize: '11px', fontWeight: 700 }}>
                                 {ticket.is_outage && <span style={{ color: '#b45309' }}>بلاغ قسم</span>}
-                                {ticket.priority === 'عاجل' && <span style={{ color: '#ef4444' }}>عاجل</span>}
                                 {ticket.is_private && <span style={{ color: '#64748b' }}>خاص</span>}
                                 {late && <span style={{ color: '#ef4444' }}>متأخر</span>}
                               </span>
@@ -1200,7 +1199,7 @@ export default function Page() {
                             <td>{ticket.fault_type || '—'}</td>
                             <td>{ticket.assigneeName || worker?.full_name || 'بانتظار فني'}</td>
                             <td><StatusBadge status={ticket.status} /></td>
-                            <td>{ticket.priority === 'عاجل' ? <span style={{ color: '#ef4444', fontWeight: 700 }}>عاجل</span> : 'عادي'}</td>
+                            <td><PriorityBadge priority={ticket.priority} /></td>
                             <td>{formatTicketWhen(ticket.created_at)}</td>
                           </tr>
                         )

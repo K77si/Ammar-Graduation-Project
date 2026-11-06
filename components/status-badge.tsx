@@ -33,10 +33,25 @@ export function StatusLegend() {
 
 export function StatusBadge({ status }: { status?: string | null }) {
   const tone = TONES[status || ''] || TONES['مفتوحة']
+  return <ToneBadge label={statusLabel(status)} color={tone.color} background={tone.background} />
+}
+
+const PRIORITY_TONES: Record<string, { color: string; background: string }> = {
+  'عاجل': { color: '#dc2626', background: 'rgba(239, 68, 68, 0.12)' },
+  'عادي': { color: '#64748b', background: 'rgba(100, 116, 139, 0.12)' }
+}
+
+export function PriorityBadge({ priority }: { priority?: string | null }) {
+  const label = priority === 'عاجل' ? 'عاجل' : 'عادي'
+  const tone = PRIORITY_TONES[label]
+  return <ToneBadge label={label} color={tone.color} background={tone.background} />
+}
+
+function ToneBadge({ label, color, background }: { label: string; color: string; background: string }) {
   return (
-    <span className="status-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap', color: tone.color, background: tone.background }}>
+    <span className="status-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap', color, background }}>
       <i style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
-      {statusLabel(status)}
+      {label}
     </span>
   )
 }

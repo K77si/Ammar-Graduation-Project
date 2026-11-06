@@ -7,7 +7,7 @@ import {
 import { SanadMark } from '@/components/sanad-mark'
 import { TicketFiles } from '@/components/ticket-files'
 import { TicketHistory, TicketTools } from '@/components/ticket-tools'
-import { StatusBadge, StatusLegend } from '@/components/status-badge'
+import { PriorityBadge, StatusBadge, StatusLegend } from '@/components/status-badge'
 import { AiAssistant } from '@/components/ai-assistant'
 import { TicketSearch } from '@/components/ticket-search'
 import { TicketConversation } from '@/components/ticket-conversation'
@@ -422,6 +422,15 @@ export default function TechnicianPage() {
     setMenu(false)
   }
 
+  const saveAvailability = async (next: (typeof AVAILABILITY)[number]) => {
+    if (next === availability) return
+    const previous = availability
+    setAvailability(next)
+    const saved = await supabase.from('profiles').update({ availability: next }).eq('id', userId)
+    if (saved.error) { setAvailability(previous); setRefreshNotice('تعذّر حفظ حالتك: ' + saved.error.message) }
+    else setRefreshNotice(next === 'خارج الدوام' ? 'حالتك: خارج الدوام.' : `تم تحديث حالتك إلى: ${next}.`)
+  }
+
   if (!ready) return <main className="app-shell" style={{ minHeight: '100vh' }} aria-busy="true" />
 
   return (
@@ -507,19 +516,14 @@ export default function TechnicianPage() {
               
             </div>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-                حالتي
-                <select aria-label="حالة الفني" value={availability} onChange={async (event) => {
-                  const next = event.target.value as (typeof AVAILABILITY)[number]
-                  const previous = availability
-                  setAvailability(next)
-                  const saved = await supabase.from('profiles').update({ availability: next }).eq('id', userId)
-                  if (saved.error) { setAvailability(previous); setRefreshNotice('تعذّر حفظ حالتك: ' + saved.error.message) }
-                  else setRefreshNotice(next === 'خارج الدوام' ? 'حالتك: خارج الدوام.' : `تم تحديث حالتك إلى: ${next}.`)
-                }} style={{ background: availability === 'خارج الدوام' ? 'rgba(239, 68, 68, 0.1)' : 'transparent', color: 'inherit', border: '1px solid #c4b5fd', borderRadius: '8px', padding: '8px 10px' }}>
-                  {AVAILABILITY.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
-              </label>
+              <div className="availability" role="group" aria-label="حالة الفني">
+                <span>حالتي</span>
+                <div className="availability-switch">
+                  {AVAILABILITY.map((item) => (
+                    <button key={item} type="button" data-state={item} aria-pressed={availability === item} onClick={() => { void saveAvailability(item) }}>{item}</button>
+                  ))}
+                </div>
+              </div>
               <button className="primary-btn" onClick={() => fetchQueue()} disabled={isRefreshing} style={{ background: '#8b5cf6', color: '#fff' }}>
                 <RefreshCw size={15} className={isRefreshing ? 'animate-spin' : ''} /> {isRefreshing ? 'جاري التحديث...' : 'تحديث البيانات'}
               </button>
@@ -776,7 +780,6 @@ function TicketTable({ loading, tickets, names, numbers, departments, workerName
                   <b>{ticket.title}</b>
                   <span style={{ display: 'flex', gap: '6px', marginTop: '4px', fontSize: '11px', fontWeight: 700 }}>
                     {ticket.is_outage && <span style={{ color: '#b45309' }}>بلاغ قسم</span>}
-                    {ticket.priority === 'عاجل' && <span style={{ color: '#ef4444' }}>عاجل</span>}
                     {ticket.is_private && <span style={{ color: '#64748b' }}>خاص</span>}
                     {late && <span style={{ color: '#ef4444' }}>متأخر</span>}
                     {sanadReplied?.[ticket.id] && <span className="sanad-reply-mark">رد بسند</span>}
@@ -791,7 +794,7 @@ function TicketTable({ loading, tickets, names, numbers, departments, workerName
                 <td>{ticket.fault_type || '—'}</td>
                 <td>{workerName(ticket)}</td>
                 <td><StatusBadge status={ticket.status} /></td>
-                <td>{ticket.priority === 'عاجل' ? <span style={{ color: '#ef4444', fontWeight: 700 }}>عاجل</span> : 'عادي'}</td>
+                <td><PriorityBadge priority={ticket.priority} /></td>
                 <td>{formatTicketWhen(ticket.created_at)}</td>
               </tr>
             )

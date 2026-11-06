@@ -838,6 +838,74 @@ details.fold[open] > summary::after {
   filter: brightness(1.45) saturate(1.1);
 }
 
+.availability {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.availability > span {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.availability-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--field);
+  border: 1px solid var(--border);
+}
+
+.availability-switch button {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.availability-switch button:focus-visible {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 1px;
+}
+
+.availability-switch button[aria-pressed='true'][data-state='متاح'] {
+  background: rgba(16, 185, 129, 0.16);
+  color: #059669;
+}
+
+.availability-switch button[aria-pressed='true'][data-state='مشغول'] {
+  background: rgba(245, 158, 11, 0.18);
+  color: #d97706;
+}
+
+.availability-switch button[aria-pressed='true'][data-state='خارج الدوام'] {
+  background: rgba(100, 116, 139, 0.16);
+  color: #475569;
+}
+
+.dark .availability-switch button[aria-pressed='true'][data-state='متاح'] {
+  color: #34d399;
+}
+
+.dark .availability-switch button[aria-pressed='true'][data-state='مشغول'] {
+  color: #fbbf24;
+}
+
+.dark .availability-switch button[aria-pressed='true'][data-state='خارج الدوام'] {
+  background: rgba(148, 163, 184, 0.18);
+  color: #cbd5e1;
+}
+
 .bubble-head span {
   color: var(--text-muted);
   font-size: 11px;

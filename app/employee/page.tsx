@@ -5,7 +5,7 @@ import { Ticket, PlusCircle, LogOut, Moon, Sun, Bell, X, MessageSquare, Star, Bo
 import { SanadMark } from '@/components/sanad-mark'
 import { TicketFiles } from '@/components/ticket-files'
 import { TicketHistory, TicketTools } from '@/components/ticket-tools'
-import { StatusBadge } from '@/components/status-badge'
+import { PriorityBadge, StatusBadge } from '@/components/status-badge'
 import { TicketConversation } from '@/components/ticket-conversation'
 import { AiAssistant } from '@/components/ai-assistant'
 import { TicketSearch } from '@/components/ticket-search'
@@ -700,7 +700,7 @@ export default function EmployeePage() {
                       <span style={{ display: 'flex', gap: '6px', marginTop: '4px', fontSize: '11px', fontWeight: 700 }}>
                         {t.status === 'بانتظار الموظف' && t.user_id === userId && <span style={{ color: '#9333ea' }}>مطلوب ردك</span>}
                         {t.is_outage && <span style={{ color: '#b45309' }}>بلاغ قسم</span>}
-                        {t.priority === 'عاجل' && <span style={{ color: '#ef4444' }}>عاجل</span>}
+                        {t.priority === 'عاجل' && <PriorityBadge priority="عاجل" />}
                         {t.is_private && <span style={{ color: '#64748b' }}>خاص</span>}
                       </span>
                     </td>
