@@ -144,6 +144,7 @@ export default function Page() {
   const adminAcked = useRef(new Set<string>())
   const [statusEvents, setStatusEvents] = useState<Array<{ ticket_id: string; from_status: string | null; to_status: string | null; created_at: string }>>([])
   const [analyticsRange, setAnalyticsRange] = useState<AnalyticsRange>('30')
+  const [analyticsNow, setAnalyticsNow] = useState<number | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
 
   // التعديل
@@ -483,7 +484,8 @@ export default function Page() {
     setAdminNotices(ordered.slice(0, 8))
     setAdminUnread([...unread].some((id) => !adminAcked.current.has(id)))
   }, [accessReady, adminId, users, tickets, auditLogs, sysSettings.email_alerts, myPermissions])
-  const analyticsTickets = useMemo(() => ticketsOpenedInRange(tickets, analyticsRange), [tickets, analyticsRange])
+  useEffect(() => { setAnalyticsNow(Date.now()) }, [])
+  const analyticsTickets = useMemo(() => analyticsNow === null || analyticsRange === 'all' ? tickets : ticketsOpenedInRange(tickets, analyticsRange, analyticsNow), [tickets, analyticsRange, analyticsNow])
   const deptStats = useMemo(() => {
     const counts: Record<string, number> = {}
     analyticsTickets.forEach((ticket) => {

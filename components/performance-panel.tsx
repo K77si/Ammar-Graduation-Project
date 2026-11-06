@@ -27,7 +27,7 @@ const RANGES = [
 ] as const
 export type AnalyticsRange = (typeof RANGES)[number]['value']
 
-export function ticketsOpenedInRange<T extends { created_at?: string | null }>(tickets: T[], range: AnalyticsRange, now = Date.now()) {
+export function ticketsOpenedInRange<T extends { created_at?: string | null }>(tickets: T[], range: AnalyticsRange, now: number) {
   if (range === 'all') return tickets
   const since = now - Number(range) * DAY
   return tickets.filter((ticket) => {
